@@ -17,12 +17,13 @@ class PSPktmon
     [void] PacketMonitorInitialize()
     {
         [UInt32]$ApiVersion = 0x00010000
-
         if ($this.PktmonHandle -ne [IntPtr]::Zero) { return }
         [IntPtr] $handle = [IntPtr]::Zero
         $result = [PktMonApi]::PacketMonitorInitialize($ApiVersion, [IntPtr]::Zero, [ref]$handle)
         if ($result -ne 0) { throw "Failed to initialize PktMon: 0x{0:X}" -f $result }
         $this.PktmonHandle = $handle
+        [PacketData]::MissedPacketWriteCount = 0
+        [PacketData]::MissedPacketReadCount = 0
     }
 
     [void] PacketMonitorUninitialize()
@@ -445,32 +446,25 @@ class PacketData
     [PktmonMetaData] $PktmonMetaData;
     [ParsedPacket] $ParsedPacket;
     [Byte[]] $RawPacketData;
-    [Byte[]] $RawData;
     
     
     PacketData([PSPacketData] $packetData)
     {
         [PacketData]::MissedPacketWriteCount = $packetData.MissedPacketWriteCount
         [PacketData]::MissedPacketReadCount = $packetData.MissedPacketReadCount
-
-        $this.rawData = [byte[]]::new($packetData.DataSize)
-        for($i = 0; $i -lt $packetData.DataSize; $i++)
-        {
-            $this.rawData[$i] = $packetData.Data[$i]
-        }
         
         [Byte[]] $pktmonRawData =  [Byte[]]::new(40)
         [Byte[]] $this.rawPacketData =  [Byte[]]::new($packetData.PacketLength)
 
-        for($i = 0; $i -lt $this.rawData.Count; $i++)
+        for($i = 0; $i -lt $packetData.DataSize; $i++)
         {
             if($i -lt $packetData.PacketOffset -and $i -ge $packetData.MetadataOffset)
             {
-                $pktmonRawData[$i] = $this.rawData[$i];
+                $pktmonRawData[$i] = $packetData.Data[$i];
             }
             elseif($i -ge $packetData.PacketOffset -and $this.rawPacketData.Count -gt 0)
             {
-                $this.rawPacketData[$i - $packetData.PacketOffset] = $this.rawData[$i];
+                $this.rawPacketData[$i - $packetData.PacketOffset] = $packetData.Data[$i];
             }
         }
         $this.PktmonMetaData = [PktmonMetaData]::new($pktmonRawData)
@@ -993,7 +987,7 @@ enum PacketDirection
 {
     Outgoing = 0
     Incoming = 1
-    Unkown = 2
+    Unknown = 2
 }
 
 enum IPv4Protocol 
