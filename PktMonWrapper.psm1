@@ -1,4 +1,6 @@
-﻿. "$PSScriptRoot\PktmonPInvokeWrapper.ps1"
+﻿#requires -RunAsAdministrator
+
+. "$PSScriptRoot\PktmonPInvokeWrapper.ps1"
 . "$PSScriptRoot\PktmonClasses.ps1"
 
 if($script:PSPktmon)
@@ -39,7 +41,6 @@ function Start-PktmonQuick
 
 function Get-PktMonAdapter 
 {
-    [CmdletBinding()]
     param
     (
         [Bool]$ShowHidden = $false,
@@ -53,7 +54,6 @@ function Get-PktMonAdapter
 
 function Get-PktMonSession 
 {
-    [CmdletBinding()]
     param([string] $Name = "PktmonSession")
 
     return $script:PSPktmon.PacketMonitorCreateLiveSession($Name);
@@ -61,7 +61,6 @@ function Get-PktMonSession
 
 function Add-PktMonDataSource 
 {
-    [CmdletBinding()]
     param
     (
         [Parameter(Mandatory)]$Session, 
@@ -81,7 +80,6 @@ function Add-PktMonDataSource
 
 function Get-PktmonRealtimeStreamHandle
 {
-    [CmdletBinding()]
     param
     (
         [uint16] $BufferSizeMultiplier = 10,
@@ -93,7 +91,6 @@ function Get-PktmonRealtimeStreamHandle
 
 function Close-PktmonRealTimeStreamHandle
 {
-    [CmdletBinding()]
     param
     (
         [Parameter(Mandatory)]$PktmonRealTimeStream
@@ -107,7 +104,6 @@ function Close-PktmonRealTimeStreamHandle
 
 function Add-PktmonRealTimeStreamToSession
 {
-    [CmdletBinding()]
     param
     (
         [Parameter(Mandatory)]$Session,
@@ -127,7 +123,6 @@ function Add-PktmonRealTimeStreamToSession
 
 function Start-PktmonSession
 {
-    [CmdletBinding()]
     param
     (
         [Parameter(Mandatory)]$Session
