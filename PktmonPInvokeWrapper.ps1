@@ -28,14 +28,36 @@ public struct PACKETMONITOR_STREAM_DATA_DESCRIPTOR
     public UInt32 MissedPacketReadCount;
 }
 
+public struct PSPacketData
+{
+    public byte[] Data;
+    public UInt32 DataSize;
+    public UInt32 MetadataOffset;
+    public UInt32 PacketOffset;
+    public UInt32 PacketLength;
+    public UInt32 MissedPacketWriteCount;
+    public UInt32 MissedPacketReadCount;
+
+
+    public PSPacketData(byte[] data, uint dataSize, uint metadataOffset, uint packetOffset, uint packetLength, uint missedPacketWriteCount, uint missedPacketReadCount)
+    {
+        Data = data;
+        DataSize = dataSize;
+        MetadataOffset = metadataOffset;
+        PacketOffset = packetOffset;
+        PacketLength = packetLength;
+        MissedPacketWriteCount = missedPacketWriteCount;
+        MissedPacketReadCount = missedPacketReadCount;
+    }
+}
+
 [UnmanagedFunctionPointer(CallingConvention.Winapi)]
 public delegate void PACKETMONITOR_STREAM_DATA_CALLBACK(IntPtr zeroPtr, PACKETMONITOR_STREAM_DATA_DESCRIPTOR descriptor);
-
 
 public static class PktMonApi
 {
     public static PACKETMONITOR_STREAM_DATA_CALLBACK DataCallback;
-    public static List<Byte[]> PacketDataArrayList;
+    public static List<PSPacketData> PacketDataArrayList = new List<PSPacketData>();
 
     [DllImport("pktmonapi.dll", CallingConvention = CallingConvention.Winapi)]
     public static extern int PacketMonitorInitialize
@@ -54,8 +76,8 @@ public static class PktMonApi
         IntPtr handle,
         UInt32 sourceKind,
         [MarshalAs(UnmanagedType.U1)]bool showHidden,
-        UIntPtr bufferCapacity,
-        out UIntPtr bytesNeeded,
+        UInt64 bufferCapacity,
+        out UInt64 bytesNeeded,
         IntPtr buffer
     );
 
@@ -65,6 +87,12 @@ public static class PktMonApi
         IntPtr handle,
         [MarshalAs(UnmanagedType.LPWStr)] string sessionName,
         out IntPtr session
+    );
+
+    [DllImport("pktmonapi.dll", CallingConvention = CallingConvention.Winapi)]
+    public static extern void PacketMonitorCloseSessionHandle
+    (
+        IntPtr handle
     );
 
     [DllImport("pktmonapi.dll", CallingConvention = CallingConvention.Winapi)]
@@ -90,7 +118,7 @@ public static class PktMonApi
     );
 
     [DllImport("pktmonapi.dll", CallingConvention = CallingConvention.Winapi)]
-    public static extern int PacketMonitorCloseRealtimeStream
+    public static extern void PacketMonitorCloseRealtimeStream
     (
         IntPtr realtimeStream
     );
@@ -110,23 +138,35 @@ public static class PktMonApi
     );
 
 
-    private static void PacketDataCallBack(IntPtr zeroPtr, PACKETMONITOR_STREAM_DATA_DESCRIPTOR descriptor)
+    private static void PacketDataCallBack(IntPtr userContext, PACKETMONITOR_STREAM_DATA_DESCRIPTOR descriptor)
     {
         Byte[] byteArray = new Byte[descriptor.DataSize];
         Marshal.Copy(descriptor.Data, byteArray, 0, (int) descriptor.DataSize);
-        PacketDataArrayList.Add(byteArray);
+        PSPacketData tmp = new PSPacketData
+        (
+            byteArray, 
+            descriptor.DataSize, descriptor.MetadataOffset, 
+            descriptor.PacketOffset, descriptor.PacketLength, 
+            descriptor.MissedPacketWriteCount, descriptor.MissedPacketReadCount
+        );
+        
+        PacketDataArrayList.Add(tmp);
     }
 
-    public static Byte[][] GetPacketData()
+    public static PSPacketData[] GetPacketData()
     {
-        Byte[][] returnArr = PacketDataArrayList.ToArray();
-        PacketDataArrayList.Clear();
+        int count = PacketDataArrayList.Count;
+        PSPacketData[] returnArr = new PSPacketData[count];
+        for (int i = 0; i < count; i++)
+        {
+            returnArr[i] = PacketDataArrayList[i];
+        }
+        PacketDataArrayList.RemoveRange(0, count);
         return returnArr;
     }
     
     public static IntPtr CreateRealtimeStream(IntPtr PktmonHandle, PACKETMONITOR_REALTIME_STREAM_CONFIGURATION cfg)
     {
-        PacketDataArrayList = new List<byte[]>();
         DataCallback = new PACKETMONITOR_STREAM_DATA_CALLBACK(PacketDataCallBack);
         cfg.DataCallback = Marshal.GetFunctionPointerForDelegate(DataCallback);
         IntPtr streamHandle = IntPtr.Zero;
@@ -136,7 +176,7 @@ public static class PktMonApi
         {
             return IntPtr.Zero;
         }
-
+        
         return streamHandle;
     }
 }

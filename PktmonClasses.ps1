@@ -29,6 +29,26 @@ class PSPktmon
     {
         if ($this.PktmonHandle -eq [IntPtr]::Zero) { return }
         $this.FreeAllMemoryPointers()
+        foreach($session in $this.OpenPktmonSessions)
+        {
+            if($session.Active)
+            {
+                $session.PacketMonitorSetSessionActive($false)
+            }
+            if($session.Handle -ne [IntPtr]::Zero)
+            {
+                $session.PacketMonitorCloseSessionHandle()
+            }
+        }
+        $this.OpenPktmonSessions.Clear()
+        foreach($realTimeStream in $this.OpenPktmonRealTimeStreams)
+        {
+            if($realTimeStream.Handle -ne [IntPtr]::Zero)
+            {
+                $realTimeStream.PacketMonitorCloseRealtimeStream()
+            }
+        }
+        $this.OpenPktmonRealTimeStreams.Clear()
         [PktMonApi]::PacketMonitorUninitialize($this.PktmonHandle)
         $this.PktmonHandle = [IntPtr]::Zero
     }
@@ -99,9 +119,10 @@ class PSPktmon
     [PktmonRealTimeStream] CreateRealtimeStream([uint16] $BufferSizeMultiplier, [uint16] $TruncationSize)
     {
         if ($this.PktMonHandle -eq [IntPtr]::Zero) { throw "Pktmon not initialized" }
-
+        
+        $id =  $this.OpenPktmonRealTimeStreams.Count
         $config = [PACKETMONITOR_REALTIME_STREAM_CONFIGURATION]::new()
-        $config.UserContext = [IntPtr]::Zero
+        $config.UserContext = [IntPtr] [PktmonRealTimeStream]::Index
         $config.EventCallback = [IntPtr]::Zero
         $config.DataCallback = [IntPtr]::Zero
         $config.BufferSizeMultiplier = [uint16] $BufferSizeMultiplier
@@ -109,9 +130,10 @@ class PSPktmon
         
         $RSPtr = [PktMonApi]::CreateRealtimeStream($this.PktmonHandle, [PACKETMONITOR_REALTIME_STREAM_CONFIGURATION]$config)
         if ($RSPtr  -eq [IntPtr]::Zero) { throw "Failed to create realtime stream."}
-        Write-host "Real time stream created: handle = $($this.Handle)" 
 
         $realTimeStream = [PktmonRealTimeStream]::new($BufferSizeMultiplier, $TruncationSize, $RSPtr)
+        Write-host "Real time stream created: handle = $($realTimeStream.Handle)" 
+
         $null = $this.OpenPktmonRealTimeStreams.Add($realTimeStream);
         return $realTimeStream
     }
@@ -119,9 +141,9 @@ class PSPktmon
     [void] PacketMonitorCloseRealtimeStream([PktmonRealTimeStream] $realTimeStream)
     {
         if ($this.PktMonHandle -eq [IntPtr]::Zero) { throw "Pktmon not initialized" }
-
+        $tmpHandle = $realTimeStream.Handle
         $realTimeStream.PacketMonitorCloseRealtimeStream()
-        Write-host "Real time stream closed: handle = $($realTimeStream.Handle)"
+        Write-host "Real time stream closed: handle = $($tmpHandle)"
         foreach($session in $this.OpenPktmonSessions)
         {
             $session.RemoveOutputFromSession($realTimeStream);
@@ -191,11 +213,20 @@ class PSPktmon
         return $pktmonSources
     }
 
+    [System.Collections.ArrayList] GetAllPackets()
+    {
+        $returnArray = [System.Collections.ArrayList]::new()
+        foreach($session in $this.OpenPktmonSessions)
+        {
+            $returnArray.AddRange($session.ReadPacketsFromBuffer())
+        }
+        return $returnArray;
+    }
+
 }
 
 class PktmonAdapter
 {
-    [int] $Index
     [int] $Length;
     [string] $Name
     [string] $Description
@@ -205,7 +236,6 @@ class PktmonAdapter
     [IntPtr] $Pointer
     [int] $Type
     [string] $MacAddress
-    [string] $HexOffset
     [byte[]] $RawBytes
 
     PktmonAdapter([IntPtr] $pointer)
@@ -322,10 +352,22 @@ class PktmonSession
         $this.AttachedOutputStream.Clear()
         $this.Active = $false
     }
+
+    [System.Collections.ArrayList] ReadPacketsFromBuffer()
+    {
+        $returnArray = [System.Collections.ArrayList]::new()
+        foreach($outputStream in $this.AttachedOutputStream)
+        {
+            $returnArray.AddRange($outputStream.ReadPacketsFromBuffer())
+        }
+        return $returnArray;
+    }
 }
 
 class PktmonRealTimeStream
 {
+    static [int] $Index
+    [Int] $Id
     [uint16] $BufferSizeMultiplier;
     [uint16] $TruncationSize;
     [IntPtr] $Handle;
@@ -336,6 +378,8 @@ class PktmonRealTimeStream
         $this.BufferSizeMultiplier = $BufferSizeMultiplier
         $this.TruncationSize = $TruncationSize
         $this.Handle = $pointer
+        $this.Id = [PktmonRealTimeStream]::Index
+        [PktmonRealTimeStream]::Index += 1;
     }
 
     [void] PacketMonitorCloseRealtimeStream()
@@ -345,6 +389,18 @@ class PktmonRealTimeStream
         $this.Handle = [IntPtr]::Zero
     }
 
+    [PacketData[]] ReadPacketsFromBuffer()
+    {
+        [PSPacketData[]] $rawData = [PktMonApi]::GetPacketData();
+        [PacketData[]] $packetData = [PacketData[]]::new($rawData.Count)
+        
+        for($i = 0; $i -lt $packetData.Count; $i++)
+        {
+            $packetData[$i] = [PacketData]::new($rawData[$i])
+        }
+
+        return $packetData
+    }
 
 }
 
@@ -383,52 +439,408 @@ class PktmonMetaData
 
 class PacketData
 {
+    static [uint32] $MissedPacketWriteCount = 0;
+    static [uint32] $MissedPacketReadCount = 0;
+    static [bool] $ParsePackets = $true
     [PktmonMetaData] $PktmonMetaData;
+    [ParsedPacket] $ParsedPacket;
     [Byte[]] $RawPacketData;
-    [Byte[]] $rawData;
+    [Byte[]] $RawData;
     
     
-    PacketData([Byte[]] $byteArr)
+    PacketData([PSPacketData] $packetData)
     {
+        [PacketData]::MissedPacketWriteCount = $packetData.MissedPacketWriteCount
+        [PacketData]::MissedPacketReadCount = $packetData.MissedPacketReadCount
+
+        $this.rawData = [byte[]]::new($packetData.DataSize)
+        for($i = 0; $i -lt $packetData.DataSize; $i++)
+        {
+            $this.rawData[$i] = $packetData.Data[$i]
+        }
         
-        $this.rawData = $byteArr
-
         [Byte[]] $pktmonRawData =  [Byte[]]::new(40)
-        $rawPacketCount = $byteArr.Count - 40
-        if($rawPacketCount -gt 0)
-        {
-            [Byte[]] $PacketRawData =  [Byte[]]::new($byteArr.Count - 40)
-        }
-        else
-        {
-            [Byte[]] $PacketRawData =  [Byte[]]::new(0)
-        }
+        [Byte[]] $this.rawPacketData =  [Byte[]]::new($packetData.PacketLength)
 
-        for($i = 0; $i -lt $byteArr.Count; $i++)
+        for($i = 0; $i -lt $this.rawData.Count; $i++)
         {
-            if($i -lt 40)
+            if($i -lt $packetData.PacketOffset -and $i -ge $packetData.MetadataOffset)
             {
-                $pktmonRawData[$i] = $byteArr[$i];
+                $pktmonRawData[$i] = $this.rawData[$i];
             }
-            else
+            elseif($i -ge $packetData.PacketOffset -and $this.rawPacketData.Count -gt 0)
             {
-                $PacketRawData[$i - 40] = $byteArr[$i];
+                $this.rawPacketData[$i - $packetData.PacketOffset] = $this.rawData[$i];
             }
         }
         $this.PktmonMetaData = [PktmonMetaData]::new($pktmonRawData)
-        $this.rawPacketData = $PacketRawData
+
+        if([PacketData]::ParsePackets -and $this.RawPacketData.Count -ge 14)
+        {
+            $this.ParsedPacket = [ParsedPacket]::new($this.RawPacketData, $this.PktmonMetaData)
+        }
+    }
+}
+
+Class ParsedPacket
+{
+    $LinkLayerData;
+    [IPv4Data] $IPv4Data;
+    $ProtocolData
+    [PacketDirection] $PacketDirection
+    [DateTime] $TimeStamp
+
+    ParsedPacket([Byte[]] $PacketByteArray, [PktmonMetaData] $ptkmonMetaData)
+    {
+        $this.IPv4Data = $null
+        $this.LinkLayerData = $null
+        $etherType = $null
+        $ipv4Tmp = $null
+        $this.TimeStamp = $ptkmonMetaData.TimeStamp.ToLocalTime()
+
+        if($ptkmonMetaData.DirectionName -eq [PKTMON_DIRECTION_TAG]::PktMonDirTag_In`
+        -or $ptkmonMetaData.DirectionName -eq [PKTMON_DIRECTION_TAG]::PktMonDirTag_Rx`
+        -or $ptkmonMetaData.DirectionName -eq [PKTMON_DIRECTION_TAG]::PktMonDirTag_Ingress)
+        {
+            $this.PacketDirection = [PacketDirection]::Incoming 
+        }
+        elseif($ptkmonMetaData.DirectionName -eq [PKTMON_DIRECTION_TAG]::PktMonDirTag_Out`
+        -or $ptkmonMetaData.DirectionName -eq [PKTMON_DIRECTION_TAG]::PktMonDirTag_Tx`
+        -or $ptkmonMetaData.DirectionName -eq [PKTMON_DIRECTION_TAG]::PktMonDirTag_Egress)
+        {
+            $this.PacketDirection = [PacketDirection]::Outgoing 
+        }
+        else
+        {
+            $this.PacketDirection = [PacketDirection]::Unknown 
+        }
+
+        if($ptkmonMetaData.PacketType -eq [PKTMON_PACKET_TYPE]::PktMonPayload_WiFi)
+        {
+            if([IEEE80211]::IsIEEE80211($PacketByteArray))
+            {
+                $this.LinkLayerData = [IEEE80211]::new($PacketByteArray);
+                $etherType = $this.LinkLayerData.EtherType
+                if($this.LinkLayerData -and $etherType -eq 0x0800 `
+                -and $PacketByteArray.Count -gt $this.LinkLayerData.PayloadOffset `
+                -and $PacketByteArray[$this.LinkLayerData.PayloadOffset] -eq 0x45)
+
+                {
+                    $ipv4Tmp = [IPv4Data]::new($PacketByteArray, $this.LinkLayerData.PayloadOffset)
+                }
+            }
+        }
+        else
+        {
+            $EtherIITest = [BitUtils]::ToUInt16BigEndian($PacketByteArray, 12)
+            if($EtherIITest -eq 0x0800 -or $EtherIITest -eq 0x0806 -or $EtherIITest -eq 0x86DD -or $EtherIITest -eq 0x8100)
+            {
+                $this.LinkLayerData = [EthernetII]::new($PacketByteArray);
+                $etherType = $this.LinkLayerData.EtherType
+            }
+
+            if($this.LinkLayerData -and $etherType -eq 0x0800 -and `
+                $PacketByteArray.Count -ge 15 -and $PacketByteArray[14] -eq 0x45)
+            {
+                if($this.LinkLayerData.VlanTag)
+                {
+                    $ipv4Tmp = [IPv4Data]::new($PacketByteArray, 18)
+                }
+                else
+                {
+                    $ipv4Tmp = [IPv4Data]::new($PacketByteArray, 14)
+                }
+            }
+        }
+        
+        if(-not $ipv4Tmp)
+        {
+            $ipv4Tmp = [IPv4Data]::new($PacketByteArray)
+        }
+
+        if($ipv4Tmp.StartByteIndex -ne 0)
+        {
+            $this.IPv4Data = $ipv4Tmp
+            $this.ProtocolData = $null
+            $StartByteIndex = $this.IPv4Data.StartByteIndex + $this.IPv4Data.size
+            if($this.IPv4Data.TotalLength - $this.IPv4Data.Size -gt 0)
+            {
+                $EndByteIndex = $StartByteIndex + ($this.IPv4Data.TotalLength - $this.IPv4Data.Size)
+            }
+            else
+            {
+                $EndByteIndex = $PacketByteArray.Count - 1
+            }
+            if($EndByteIndex -gt $PacketByteArray.Count - 1)
+            {
+                $EndByteIndex  = $PacketByteArray.Count - 1;
+            }
+            $ProtocolByteArray = $PacketByteArray[$StartByteIndex..$EndByteIndex]
+
+            if($this.IPv4Data.Protocol -eq [IPv4Protocol]::ICMP)
+            {
+                $this.ProtocolData = [ICMPData]::new($ProtocolByteArray)
+            }
+            if($this.IPv4Data.Protocol -eq [IPv4Protocol]::TCP)
+            {
+                $this.ProtocolData = [TCPData]::new($ProtocolByteArray)
+            }
+            if($this.IPv4Data.Protocol -eq [IPv4Protocol]::UDP)
+            {
+                $this.ProtocolData = [UDPData]::new($ProtocolByteArray)
+            }
+            if(-not $this.ProtocolData)
+            {
+                $this.ProtocolData = [UnhandledData]::new($ProtocolByteArray)
+            }
+
+        }
+    }
+}
+
+
+Class EthernetII
+{
+    [String] $DestinationMacAddress
+    [String] $SourceMacAddress
+    [uint16] $EtherType
+    [bool] $VlanTag
+    [uint16] $TPID
+    [uint16] $TCI
+
+
+    EthernetII([Byte[]]$ByteArray)
+    {
+        $this.DestinationMacAddress = ($ByteArray[0..5] | ForEach-Object { $_.ToString("X2") }) -join ':'
+        $this.SourceMacAddress = ($ByteArray[6..11] | ForEach-Object { $_.ToString("X2") }) -join ':'
+        $tmp = [BitUtils]::ToUInt16BigEndian($ByteArray, 12)
+        if($tmp -eq 0x8100)
+        {
+            $this.VlanTag = $true
+            $this.TPID = $tmp 
+            $this.TCI = [BitUtils]::ToUInt16BigEndian($ByteArray, 14)
+            $this.EtherType = [BitUtils]::ToUInt16BigEndian($ByteArray, 16)
+        }
+        else
+        {
+            $this.EtherType = $tmp
+        }
+    }
+}
+
+class IEEE80211
+{
+    [UInt16] $FrameControl
+    [UInt16] $Duration
+    [String] $ReceiverAddress
+    [String] $TransmitterAddress
+    [String] $SourceAddress
+    [UInt16] $SequenceControl
+    [UInt16] $QoSControl
+    [UInt16] $HTControl
+    [UInt16] $PayloadOffset
+
+    [Byte]  $DSAP
+    [Byte]  $SSAP
+    [Byte]  $LLCControl
+    [Byte[]] $OUI = [Byte[]]::new(3)
+    [UInt16] $EtherType
+
+    IEEE80211([Byte[]] $ByteArray)
+    {
+        $this.FrameControl = [BitConverter]::ToUInt16($ByteArray, 0)
+        $this.Duration = [BitUtils]::ToUInt16BigEndian($ByteArray, 2)
+        $this.ReceiverAddress = ($ByteArray[4..9] | ForEach-Object { $_.ToString("X2") }) -join ":"
+        $this.TransmitterAddress = ($ByteArray[10..15] | ForEach-Object { $_.ToString("X2") }) -join ":"
+        $this.SourceAddress = ($ByteArray[16..21] | ForEach-Object { $_.ToString("X2") }) -join ":"
+        $this.SequenceControl = [BitUtils]::ToUInt16BigEndian($ByteArray, 22)
+        $type = ($this.FrameControl -shr 2) -band 0x3
+        $subtype = ($this.FrameControl -shr 4) -band 0xF
+        $hasQoS = ($type -eq 2 -and ($subtype -band 0x08))
+        $offset = 24
+
+        if ($hasQoS) 
+        {
+            $this.QoSControl = [BitUtils]::ToUInt16BigEndian($ByteArray, $offset)
+            $offset += 2
+        }
+
+        $hasHT = (($this.FrameControl -shr 10) -band 1) -eq 1
+        if ($hasHT) 
+        {
+            $this.HTControl = [BitUtils]::ToUInt16BigEndian($ByteArray, $offset)
+            $offset += 2
+        }
+        
+        $this.PayloadOffset = $offset 
+        if ($ByteArray.Length -ge ($offset + 8)) 
+        {
+            $this.DSAP = $ByteArray[$offset]
+            $this.SSAP = $ByteArray[$offset + 1]
+            $this.LLCControl = $ByteArray[$offset + 2]
+            $snapStart = $offset + 3
+            $this.OUI = $ByteArray[$snapStart..($snapStart + 2)]
+            $this.EtherType = [BitUtils]::ToUInt16BigEndian($ByteArray, $snapStart + 3)
+            $this.PayloadOffset = $offset + 8
+        }
     }
 
-    [void] ToHex()
+    static [bool] IsIEEE80211([Byte[]]$ByteArray)
+    {
+        if ($ByteArray.Length -lt 10) { return $false }
+
+        $fc = [BitConverter]::ToUInt16($ByteArray, 0)
+        $version = $fc -band 0x3
+        if ($version -ne 0) { return $false }
+
+        $type = ($fc -shr 2) -band 0x3
+        if ($type -gt 2) { return $false }
+
+        return $true
+    }
+}
+
+Class UnhandledData
+{
+    [Byte[]] $RawBytes
+
+    UnhandledData([Byte[]] $ByteArray)
+    {
+        $this.RawBytes = $ByteArray
+    }
+}
+
+Class ICMPData
+{
+    [Byte] $Type
+    [ICMP4_TYPE] $Code
+    [uint16] $CheckSum
+    [Byte[]] $UnparsedHeaders
+    [Byte[]] $Data
+
+    ICMPData([Byte[]] $ByteArray)
+    {
+        if($ByteArray.Count -lt 8){return}
+        $this.Type = [ICMP4_TYPE]$ByteArray[0]
+        $this.Code = $ByteArray[1]
+        $this.CheckSum = [BitUtils]::ToUInt16BigEndian($ByteArray, 2)
+
+        $this.UnparsedHeaders = [Byte[]]::new(4)
+        for($i = 4; $i -lt 8; $i++)
+        {
+            $this.UnparsedHeaders[$i-4] = $ByteArray[$i];
+        }
+
+        $this.Data = [Byte[]]::new($ByteArray.Count - 8)
+        for($i = 8; $i -lt $ByteArray.Count; $i++)
+        {
+            $this.Data[$i-8] = $ByteArray[$i];
+        }
+
+    }
+}
+
+Class TCPData
+{
+    [int] $Size
+    [uint16] $SourcePort
+    [uint16] $DestinationPort
+    [uint32] $SequenceNumber
+    [uint32] $AcknowledgementNumber
+    [byte] $DataOffset
+    [byte] $Reserved
+    [byte] $Flags
+    [uint16] $Window
+    [uint16] $Checksum
+    [uint16] $UrgentPointer
+    [Byte[]] $Options
+    [Byte[]] $Data
+
+
+    TCPData([Byte[]] $ByteArray)
+    {
+        if($ByteArray.Count -lt 20) {return}
+        $this.SourcePort = [BitUtils]::ToUInt16BigEndian($ByteArray, 0)
+        $this.DestinationPort = [BitUtils]::ToUInt16BigEndian($ByteArray, 2)
+        $this.SequenceNumber = [BitUtils]::ToUInt32BigEndian($ByteArray, 4)
+        $this.AcknowledgementNumber = [BitUtils]::ToUInt32BigEndian($ByteArray, 8)
+        $this.DataOffset = $ByteArray[12] -shr 4
+        $this.size = $this.DataOffset * 4
+        $this.Reserved = $ByteArray[12] -band 0x0F
+        $this.Flags = $ByteArray[13]
+        $this.Window = [BitUtils]::ToUInt16BigEndian($ByteArray, 14)
+        $this.Checksum = [BitUtils]::ToUInt16BigEndian($ByteArray, 16)
+        $this.UrgentPointer = [BitUtils]::ToUInt16BigEndian($ByteArray, 18)
+        if($this.size -lt 20){return}
+        $this.Options = [Byte[]]::new($this.size - 20); 
+        for($i = 20; $i -lt $this.size -and $i -lt $ByteArray.Count; $i++)
+        {
+            $this.Options[$i - 20] = $ByteArray[$i];
+        }
+        if($ByteArray.Count - $this.Size -lt 0)
+        {
+            return 
+        }
+        $this.Data = [Byte[]]::new($ByteArray.Count - $this.size) 
+        for($i = $this.Size; $i -lt $ByteArray.Count; $i++)
+        {
+            $this.Data[$i - $this.size] = $ByteArray[$i];
+        }
+    }
+}
+
+class UDPData
+{
+    [uint16] $SourcePort
+    [uint16] $DestinationPort
+    [uint16] $Length
+    [uint16] $CheckSum
+    [Byte[]] $Data
+
+    UDPData([Byte[]] $ByteArray)
+    {
+        if($ByteArray.Length -lt 8) {return}
+        $this.SourcePort = [BitUtils]::ToUInt16BigEndian($ByteArray, 0)
+        $this.DestinationPort = [BitUtils]::ToUInt16BigEndian($ByteArray, 2)
+        $this.Length = [BitUtils]::ToUInt16BigEndian($ByteArray, 4)
+        $this.CheckSum = [BitUtils]::ToUInt16BigEndian($ByteArray, 6)
+        $this.Data = [Byte[]]::new($this.Length - 8)
+        for($i = 8; $i -lt $this.Length -and $i -lt $ByteArray.Count; $i++)
+        {
+            $this.Data[$i -8] = $ByteArray[$i]
+        }
+
+    }
+}
+
+class BitUtils
+{
+    static [uint16] ToUInt16BigEndian([Byte[]] $ByteArray, [int] $offset)
+    {
+        $byte1 = [uint16]$ByteArray[0 + $offset]   
+        $byte2 = [uint16]$ByteArray[1 + $offset] 
+        return [uint16](($byte1 -shl 8) -bor $byte2)
+    } 
+    
+    static [uint32] ToUInt32BigEndian([byte[]] $ByteArray, [int] $offset)
+    {
+        $b1 = [uint32]$ByteArray[$offset]
+        $b2 = [uint32]$ByteArray[$offset + 1]
+        $b3 = [uint32]$ByteArray[$offset + 2]
+        $b4 = [uint32]$ByteArray[$offset + 3]
+
+        return [uint32](($b1 -shl 24) -bor ($b2 -shl 16) -bor ($b3 -shl 8)  -bor $b4)
+    }
+    static [void] ToHex([Byte[]] $ByteArray)
     {
         $bytesPerLine = 16
-        for($i = 0; $i -lt $this.RawPacketData.Count; $i+= 16)
+        for($i = 0; $i -lt $ByteArray.Count; $i+= 16)
         {
             $hex = ""
             $ascii = ""
-            for ($j = $i; $j -lt $this.RawPacketData.Count -and $j -lt ($bytesPerLine + $i); $j++) 
+            for ($j = $i; $j -lt $ByteArray.Count -and $j -lt ($bytesPerLine + $i); $j++) 
             {
-                [Byte] $byte = $this.RawPacketData[$j]
+                [Byte] $byte = $ByteArray[$j]
                 $tmpHex = "{0:X2} " -f $byte
                 $hex += $tmpHex
                 if ($byte -ge 32 -and $byte -le 126) 
@@ -444,7 +856,298 @@ class PacketData
             write-host $output   
         }
     }
+}
 
+class IPv4Data
+{
+    [int] $StartByteIndex;
+    [int] $size;
+    [byte] $Version
+    [byte] $IHL
+    [byte] $TOS
+    [uint16] $TotalLength
+    [uint16] $Identification
+    [byte] $Flags
+    [Byte[]] $FragmentOffset
+    [byte] $TTL
+    [IPv4Protocol] $Protocol
+    [uint16] $HeaderChecksum
+    [string] $SourceAddress
+    [string] $DestinationAddress
+    [byte[]] $Options
+
+    IPv4Data([Byte[]] $byteArray)
+    {
+        $index = $this.FindIPv4HeaderIndex($byteArray)
+        $this.ParseIPV4Data($byteArray, $index)
+    }
+
+    IPv4Data([Byte[]] $byteArray, [int] $index)
+    {
+        $this.ParseIPV4Data($byteArray, $index)
+    }
+
+    [void] ParseIPV4Data([Byte[]] $byteArray, [int] $index)
+    {
+        if($index -eq 0 -or $byteArray.Count - $index -lt 20) {return}
+        $this.startByteIndex = $index
+        $this.Version = ($byteArray[$index] -shr 4)
+        $this.IHL = $byteArray[$index] -band 0x0F
+        $this.size = $this.IHL * 4
+        $this.TOS = $byteArray[$index + 1]
+        $this.TotalLength = [BitUtils]::ToUInt16BigEndian($byteArray, ($index + 2))
+        $this.Identification =  [BitUtils]::ToUInt16BigEndian($byteArray, ($index + 4))
+        $this.Flags = $byteArray[6] -band 0x1F
+        $this.FragmentOffset = [Byte[]]::new(2);
+        $this.FragmentOffset[0] = $byteArray[$index + 6] -band 0xE0
+        $this.FragmentOffset[1] = $byteArray[$index + 7]
+        $this.TTL = $byteArray[8]
+        if(([Enum]::IsDefined([IPv4Protocol], [int]$byteArray[$index + 9])))
+        {
+            $this.Protocol = [IPv4Protocol][int]$byteArray[$index + 9]
+        }
+        else
+        {
+            $this.Protocol = [IPv4Protocol]-1
+        }
+        $this.HeaderChecksum = [BitUtils]::ToUInt16BigEndian($byteArray, ($index + 10))
+        $this.SourceAddress = $byteArray[($index+12)..($index+15)] -join "."
+        $this.DestinationAddress = $byteArray[($index+16)..($index+19)] -join "."
+        
+        $this.options = [Byte[]]::new($this.size - 20);
+        for($i = 20; $i -lt $this.size; $i++)
+        {
+            $this.Options[0] = $byteArray[$i];
+        }
+    }
+    
+    [int] FindIPv4HeaderIndex ([byte[]]$PacketBytes)
+    {
+        $etherTypeIPv4 = [Byte[]](0x08,0x00)
+        $snapIPv4 = [Byte[]](0xAA,0xAA,0x03,0x00,0x00,0x00,0x08,0x00)
+
+        for ($i = 0; $i -lt $PacketBytes.Count - 20; $i++)
+        {
+            $candidateIndex = $null
+
+            $matchEther = $true
+            for ($j=0; $j -lt $etherTypeIPv4.Length; $j++)
+            {
+                if ($PacketBytes[$i + $j] -ne $etherTypeIPv4[$j])
+                {
+                    $matchEther = $false
+                    break
+                }
+            }
+            if ($matchEther) { $candidateIndex = $i + 2 }
+
+            $matchSnap = $true
+            for ($j=0; $j -lt $snapIPv4.Length; $j++) 
+            {
+                if ($PacketBytes[$i + $j] -ne $snapIPv4[$j])
+                {
+                    $matchSnap = $false
+                    break
+                }
+            }
+            if ($matchSnap) { $candidateIndex = $i + 8 }
+
+            if ($candidateIndex -ne $null -and $candidateIndex + 20 -le $PacketBytes.Count)
+            {
+                $tmpVersion = $PacketBytes[$candidateIndex] -shr 4
+                $tmpIhlWords = $PacketBytes[$candidateIndex] -band 0x0F
+                $tmpIhlBytes = $tmpIhlWords * 4
+                $tmpTotalLength = ($PacketBytes[$candidateIndex + 2] -shl 8) -bor $PacketBytes[$candidateIndex + 3]
+                $tmpTTL = $PacketBytes[$candidateIndex + 8]
+                if ($tmpVersion -eq 4 -and $tmpIhlBytes -ge 20 -and $tmpTotalLength -ge $tmpIhlBytes`
+                 -and $tmpTotalLength -le ($PacketBytes.Count - $candidateIndex) -and $tmpTTL -gt 0)
+                {
+                    return $candidateIndex
+                }
+            }
+        }
+
+        return $null
+    }
+
+}
+
+enum ICMP4_TYPE
+{
+  ICMP4_ECHO_REPLY = 0
+  ICMP4_DST_UNREACH = 3
+  ICMP4_SOURCE_QUENCH = 4
+  ICMP4_REDIRECT = 5
+  ICMP4_ECHO_REQUEST = 8
+  ICMP4_ROUTER_ADVERT = 9
+  ICMP4_ROUTER_SOLICIT = 10
+  ICMP4_TIME_EXCEEDED = 11
+  ICMP4_PARAM_PROB = 12
+  ICMP4_TIMESTAMP_REQUEST = 13
+  ICMP4_TIMESTAMP_REPLY = 14
+  ICMP4_MASK_REQUEST = 17
+  ICMP4_MASK_REPLY = 18
+}
+
+enum PacketDirection
+{
+    Outgoing = 0
+    Incoming = 1
+    Unkown = 2
+}
+
+enum IPv4Protocol 
+{
+    HOPOPT = 0
+    ICMP = 1
+    IGMP = 2
+    GGP = 3
+    IP_in_IP = 4
+    ST = 5
+    TCP = 6
+    CBT = 7
+    EGP = 8
+    IGP = 9
+    BBN_RCC_MON = 10
+    NVP_II = 11
+    PUP = 12
+    ARGUS = 13
+    EMCON = 14
+    XNET = 15
+    CHAOS = 16
+    UDP = 17
+    MUX = 18
+    DCN_MEAS = 19
+    HMP = 20
+    PRM = 21
+    XNS_IDP = 22
+    TRUNK_1 = 23
+    TRUNK_2 = 24
+    LEAF_1 = 25
+    LEAF_2 = 26
+    RDP = 27
+    IRTP = 28
+    ISO_TP4 = 29
+    NETBLT = 30
+    MFE_NSP = 31
+    MERIT_INP = 32
+    DCCP = 33
+    _3PC = 34
+    IDPR = 35
+    XTP = 36
+    DDP = 37
+    IDPR_CMTP = 38
+    TP_PLUS = 39
+    IL = 40
+    IPv6 = 41
+    SDRP = 42
+    IPv6_Route = 43
+    IPv6_Frag = 44
+    IDRP = 45
+    RSVP = 46
+    GRE = 47
+    DSR = 48
+    BNA = 49
+    ESP = 50
+    AH = 51
+    I_NLSP = 52
+    SwIPe = 53
+    NARP = 54
+    MOBILE = 55
+    TLSP = 56
+    SKIP = 57
+    IPv6_ICMP = 58
+    IPv6_NoNxt = 59
+    IPv6_Opts = 60
+    Unknown_61 = 61
+    CFTP = 62
+    Unknown_63 = 63
+    SAT_EXPAK = 64
+    KRYPTOLAN = 65
+    RVD = 66
+    IPPC = 67
+    Unknown_68 = 68
+    SAT_MON = 69
+    VISA = 70
+    IPCU = 71
+    CPNX = 72
+    CPHB = 73
+    WSN = 74
+    PVP = 75
+    BR_SAT_MON = 76
+    SUN_ND = 77
+    WB_MON = 78
+    WB_EXPAK = 79
+    ISO_IP = 80
+    VMTP = 81
+    SECURE_VMTP = 82
+    VINES = 83
+    TTP = 84
+    IPTM = 84
+    NSFNET_IGP = 85
+    DGP = 86
+    TCF = 87
+    EIGRP = 88
+    OSPF = 89
+    Sprite_RPC = 90
+    LARP = 91
+    MTP = 92
+    AX25 = 93
+    OS = 94
+    MICP = 95
+    SCC_SP = 96
+    ETHERIP = 97
+    ENCAP = 98
+    Unknown_99 = 99
+    GMTP = 100
+    IFMP = 101
+    PNNI = 102
+    PIM = 103
+    ARIS = 104
+    SCPS = 105
+    QNX = 106
+    AN = 107
+    IPComp = 108
+    SNP = 109
+    Compaq_Peer = 110
+    IPX_in_IP = 111
+    VRRP = 112
+    PGM = 113
+    Unknown_114 = 114
+    L2TP = 115
+    DDX = 116
+    IATP = 117
+    STP = 118
+    SRP = 119
+    UTI = 120
+    SMP = 121
+    SM = 122
+    PTP = 123
+    ISIS_over_IPv4 = 124
+    FIRE = 125
+    CRTP = 126
+    CRUDP = 127
+    SSCOPMCE = 128
+    IPLT = 129
+    SPS = 130
+    PIPE = 131
+    SCTP = 132
+    FC = 133
+    RSVP_E2E_IGNORE = 134
+    Mobility_Header = 135
+    UDPLite = 136
+    MPLS_in_IP = 137
+    manet = 138
+    HIP = 139
+    Shim6 = 140
+    WESP = 141
+    ROHC = 142
+    Ethernet = 143
+    AGGFRAG = 144
+    NSH = 145
+    Homa = 146
+    BIT_EMU = 147
+    UNKNOWN = -1
 }
 
 enum PKTMON_DROP_REASON
