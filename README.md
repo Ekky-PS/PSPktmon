@@ -8,7 +8,11 @@ Install-Module PSPktmon
 ```
 
 ## Usage
-Start PSPktmon
+Start Pktmon Handle,
+Creates a Pktmon Session.
+Attaches all 'PacketMonitorDataSourceKindNetworkInterface' to the Session.
+Creates a RealTimestream handle and attaches it to the Session.
+Sets the Session as active.
 ```
 Start-PktmonAuto
 ```
@@ -18,12 +22,12 @@ Sets if the module should attempt to parse the packets. (Default: $True)
 Set-PktmonPacketParsing -State [bool]
 ```
 
-Returns all captured packets since last called.
+Returns all captured packets from active sessions since last called.
 ```
 Get-PktmonPackets
 ```
 
-Stop PSPktmon and clears all handles and pointers
+Stop PSPktmon and clears all handles and pointers.
 ```
 Stop-PktMon
 ```
