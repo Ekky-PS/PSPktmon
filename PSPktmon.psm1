@@ -1,8 +1,5 @@
 ﻿#requires -RunAsAdministrator
 
-. "$PSScriptRoot\PktmonPInvokeWrapper.ps1"
-. "$PSScriptRoot\PktmonClasses.ps1"
-
 if($script:PSPktmon)
 {
     $script:PSPktmon.PacketMonitorUninitialize()
@@ -23,7 +20,7 @@ function Stop-PktMon
     }
 }
 
-function Start-PktmonQuick
+function Start-PktmonAuto
 {
     Initialize-PktMon
     $session = Get-PktMonSession
@@ -174,7 +171,7 @@ function Get-PktmonPacketMissedCount
 }
 
 
-function Set-PacketParsing
+function Set-PktmonPacketParsing
 {
     param
     (
@@ -183,7 +180,7 @@ function Set-PacketParsing
     [PacketData]::ParsePackets = $State
 }
 
-function ToHex
+function Write-ToHex
 {
     param
     (
@@ -191,7 +188,5 @@ function ToHex
     )
     [BitUtils]::toHex($ByteArray)
 }
-
-Export-ModuleMember -Function * -Variable PSPktmon
 
 Register-EngineEvent PowerShell.Exiting -Action { Stop-PktMon;}
