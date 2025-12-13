@@ -8,52 +8,123 @@ Install-Module PSPktmon
 ```
 
 ## Usage
-Start Pktmon Handle,
-Creates a Pktmon Session.
-Attaches all 'PacketMonitorDataSourceKindNetworkInterface' to the Session.
-Creates a RealTimestream handle and attaches it to the Session.
-Sets the Session as active.
+For fast setup 
+Will Initializes Packet Monitor
+And create a started [PktmonSession] with all Network interfaces and a [PktmonRealTimeStream] attached.
 ```
 Start-PktmonAuto
 ```
 
-Sets if the module should attempt to parse the packets. (Default: $True)
+Initializes Packet Monitor and gets a Handle to the Packet Monitor. (Module will keep track of the Handle)
 ```
-Set-PktmonPacketParsing -State [bool]
+Initialize-PktMon
+```
+
+Creates an independent Packet Monitor session.
+```
+Get-PktMonSession
+```
+Returns a [PktmonSession] object.
+
+Retrieves list of [PktmonDataSource] to be used for attaching to a [PktmonSession]
+```
+Get-PktMonDataSources
+```
+Returns an array of [PktmonDataSource]
+
+Add a [PktmonDataSource] as a source to a [PktmonSession]
+param
+(
+    [PktmonSession]$Session, 
+    [PktmonDataSource]$DataSource
+)
+```
+Add-PktMonDataSourceToSession
+```
+
+Creates an independent Packet Monitor RealtimeStream.
+```
+Get-PktmonRealtimeStreamHandle
+```
+Returns a [PktmonRealTimeStream] object.
+
+Add a [PktmonRealTimeStream] as a source to a [PktmonSession]
+param
+(
+    [PktmonSession]$Session,
+    [PktmonRealTimeStream]$PktmonRealTimeStream
+)
+```
+Add-PktmonRealTimeStreamToSession
+```
+
+Sets a [PktmonSession] as Active. This will start the Packet capturing
+param
+(
+    [PktmonSession]$Session
+)
+```
+Start-PktmonSession
+```
+
+
+Sets if the module should attempt to parse the packets. (Default: $True)
+param
+(
+    [Bool]$State
+)
+```
+Set-PktmonPacketParsing
 ```
 
 Returns all captured packets from active sessions since last called.
 ```
 Get-PktmonPackets
 ```
+Returns an array of [PacketData]
 
 Stop PSPktmon and clears all handles and pointers.
 ```
 Stop-PktMon
 ```
 
-Example PS Script that prints out the payload as hex from ICMP Packets.
+Example PS Script that prints IPv4 Data from ICMP packets and the payload.
 ```
 Import-Module PSPktmon
 Start-PktmonAuto
+
+[System.Collections.ArrayList] $ICMPPackets = [System.Collections.ArrayList]::new()
+
 try
 {
     while($true)
     {
-        Start-Sleep -Milliseconds 10
-        $packets = Get-PktmonPackets
-        foreach($packet in $packets)
+        $RetrievedPackets = Get-PktmonPackets 
+
+        foreach($packet in $RetrievedPackets)
         {
-            if($packet.ParsedPacket.IPv4Data.Protocol -like "ICMP")
+            if($packet.ParsedPacket.IPv4Data.Protocol -eq "ICMP")
             {
-                Write-ToHex $packet.ParsedPacket.ProtocolData.Data
-                Write-Host "--------------"
+                $ICMPPackets.Add($packet) | Out-Null
+                Write-host "Source Address: $($packet.ParsedPacket.IPv4Data.SourceAddress)"
+                Write-host "Destination Address: $($packet.ParsedPacket.IPv4Data.DestinationAddress)"
+                Write-host "Direction: $($packet.ParsedPacket.PacketDirection)"
+                Write-host "ICMP Type: $($packet.ParsedPacket.ProtocolData.Type)"
+                Write-host "Timestamp: $($packet.ParsedPacket.TimeStamp)"
+                if($packet.ParsedPacket.ProtocolData.Data.Count -gt 0)
+                {
+                    Write-host "Payload Data"
+                    Write-host "-----------------------------------------------------------------------------"
+                    Write-ToHex $packet.ParsedPacket.ProtocolData.Data
+                    Write-host "-----------------------------------------------------------------------------"
+                }
+                Write-host ""
             }
         }
     }
 }
 finally
 {
-    Stop-Pktmon
+    Stop-PktMon
 }
 ```

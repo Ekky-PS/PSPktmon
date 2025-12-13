@@ -152,7 +152,7 @@ class PSPktmon
         $this.OpenPktmonRealTimeStreams.Remove($realTimeStream)
     }
 
-    [PktmonAdapter[]] PacketMonitorEnumDataSources([bool] $ShowHidden, [int] $SourceKind)
+    [PktmonDataSource[]] PacketMonitorEnumDataSources([bool] $ShowHidden, [int] $SourceKind)
     {
         if ($this.PktMonHandle -eq [IntPtr]::Zero) { throw "Pktmon not initialized" }
         
@@ -170,8 +170,8 @@ class PSPktmon
         if ($bytesNeeded -eq [uint64]::Zero) { return $null }
 
 
-        $adapterMemoryPointer = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($bytesNeeded)
-        $this.OpenPktmonPointers.Add($adapterMemoryPointer)
+        $DataSourceMemoryPointer = [System.Runtime.InteropServices.Marshal]::AllocHGlobal($bytesNeeded)
+        $this.OpenPktmonPointers.Add($DataSourceMemoryPointer)
         $bytesReturned = [UIntPtr]::Zero
         $res = [PktMonApi]::PacketMonitorEnumDataSources(
             $this.PktmonHandle,
@@ -179,12 +179,12 @@ class PSPktmon
             $ShowHidden.IsPresent,
             $bytesNeeded,
             [ref]$bytesReturned,
-            $adapterMemoryPointer
+            $DataSourceMemoryPointer
         )
         if ($res -ne 0) { throw "EnumDataSources failed: 0x{0:X}" -f $res }
 
         [int]$ItemSize   = 424 
-        $basePtr = $adapterMemoryPointer;
+        $basePtr = $DataSourceMemoryPointer;
         $length = $bytesNeeded
 
         if ($BasePtr -eq [IntPtr]::Zero) {
@@ -199,7 +199,7 @@ class PSPktmon
             throw "BytesReturned is smaller or equal to headersize"
         }
 
-        $pktmonSources = [PktmonAdapter[]]::new($itemCount);
+        $pktmonSources = [PktmonDataSource[]]::new($itemCount);
 
         for ($i = 0; $i -lt $itemCount; $i++) {
 
@@ -208,7 +208,7 @@ class PSPktmon
 
             $itemPtr = [IntPtr]$ptrVal
 
-            $pktmonSources[$i] = [PktmonAdapter]::new($itemPtr)
+            $pktmonSources[$i] = [PktmonDataSource]::new($itemPtr)
         }
 
         return $pktmonSources
@@ -226,7 +226,7 @@ class PSPktmon
 
 }
 
-class PktmonAdapter
+class PktmonDataSource
 {
     [int] $Length;
     [string] $Name
@@ -239,7 +239,7 @@ class PktmonAdapter
     [string] $MacAddress
     [byte[]] $RawBytes
 
-    PktmonAdapter([IntPtr] $pointer)
+    PktmonDataSource([IntPtr] $pointer)
     {
         $this.Pointer = $pointer
         $this.Length = 424
@@ -302,7 +302,7 @@ class PktmonSession
 {
     [string] $Name;
     [IntPtr] $Handle;
-    [System.Collections.ArrayList] $AttachedAdapters;
+    [System.Collections.ArrayList] $AttachedDataSources;
     [System.Collections.ArrayList] $AttachedOutputStream;
     [Bool] $Active;
 
@@ -310,7 +310,7 @@ class PktmonSession
     {
         $this.name = $name
         $this.handle = $handle
-        $this.AttachedAdapters = [System.Collections.ArrayList]::new()
+        $this.AttachedDataSources = [System.Collections.ArrayList]::new()
         $this.AttachedOutputStream = [System.Collections.ArrayList]::new()
     }
 
@@ -322,12 +322,12 @@ class PktmonSession
         $this.active = $active;
     }
 
-    [void] PacketMonitorAddSingleDataSourceToSession([PktmonAdapter] $adapter)
+    [void] PacketMonitorAddSingleDataSourceToSession([PktmonDataSource] $DataSource)
     {
-        $res = [PktMonApi]::PacketMonitorAddSingleDataSourceToSession($this.handle, $adapter.Pointer)
+        $res = [PktMonApi]::PacketMonitorAddSingleDataSourceToSession($this.handle, $DataSource.Pointer)
         if ($res -ne 0) { throw "Failed to add data source: 0x{0:X}" -f $res }
         Write-Host "Data source added to session: handle = $($this.handle)"
-        $null = $this.AttachedAdapters.Add($adapter)
+        $null = $this.AttachedDataSources.Add($DataSource)
     }
     
     [void] PacketMonitorAttachOutputToSession([PktmonRealTimeStream] $realTimeStream)
@@ -349,7 +349,7 @@ class PktmonSession
         if($this.handle -eq [IntPtr]::Zero){Throw "Null pointer"}
         [PktMonApi]::PacketMonitorCloseSessionHandle($this.handle)
         $this.handle = [IntPtr]::Zero
-        $this.AttachedAdapters.Clear()
+        $this.AttachedDataSources.Clear()
         $this.AttachedOutputStream.Clear()
         $this.Active = $false
     }
@@ -368,10 +368,13 @@ class PktmonSession
 class PktmonRealTimeStream
 {
     static [int] $Index
+    static [int] $PacketBufferSize = 10240
     [Int] $Id
     [uint16] $BufferSizeMultiplier;
     [uint16] $TruncationSize;
     [IntPtr] $Handle;
+    [PSPacketData[]] $PacketBuffer
+
 
 
     PktmonRealTimeStream([uint16] $BufferSizeMultiplier, [uint16] $TruncationSize, [IntPtr] $pointer)
@@ -381,6 +384,7 @@ class PktmonRealTimeStream
         $this.Handle = $pointer
         $this.Id = [PktmonRealTimeStream]::Index
         [PktmonRealTimeStream]::Index += 1;
+        $this.PacketBuffer = [PSPacketData[]]::new([PktmonRealTimeStream]::PacketBufferSize)
     }
 
     [void] PacketMonitorCloseRealtimeStream()
@@ -392,12 +396,12 @@ class PktmonRealTimeStream
 
     [PacketData[]] ReadPacketsFromBuffer()
     {
-        [PSPacketData[]] $rawData = [PktMonApi]::GetPacketData();
-        [PacketData[]] $packetData = [PacketData[]]::new($rawData.Count)
+        $packetCount = [PktMonApi]::GetPacketData($this.PacketBuffer);
+        [PacketData[]] $packetData = [PacketData[]]::new($packetCount)
         
         for($i = 0; $i -lt $packetData.Count; $i++)
         {
-            $packetData[$i] = [PacketData]::new($rawData[$i])
+            $packetData[$i] = [PacketData]::new($this.PacketBuffer[$i])
         }
 
         return $packetData
@@ -418,7 +422,7 @@ class PktmonMetaData
     [PKTMON_DROP_REASON]  $DropReason;         
     [PKTMON_DROP_LOCATION]  $DropLocation;       
     [uint16]  $Processor;          
-    [datetime] $TimeStamp; 
+    [Int64] $TimeStamp; 
 
     PktmonMetaData([Byte[]] $byteArr)
     {   
@@ -433,7 +437,7 @@ class PktmonMetaData
         $this.DropReason = [PKTMON_DROP_REASON][BitConverter]::ToUInt32($byteArr, 22)
         $this.DropLocation = [PKTMON_DROP_LOCATION][BitConverter]::ToUInt32($byteArr, 26)
         $this.Processor = [BitConverter]::ToUInt16($byteArr, 30)
-        $this.TimeStamp = [DateTime]::FromFileTimeUtc([BitConverter]::ToInt64($byteArr, 32))
+        $this.TimeStamp = [BitConverter]::ToInt64($byteArr, 32)
 
     }
 }
@@ -453,21 +457,9 @@ class PacketData
         [PacketData]::MissedPacketWriteCount = $packetData.MissedPacketWriteCount
         [PacketData]::MissedPacketReadCount = $packetData.MissedPacketReadCount
         
-        [Byte[]] $pktmonRawData =  [Byte[]]::new(40)
-        [Byte[]] $this.rawPacketData =  [Byte[]]::new($packetData.PacketLength)
+        $this.PktmonMetaData = [PktmonMetaData]::new($packetData.Data[$packetData.MetadataOffset..39])
 
-        for($i = 0; $i -lt $packetData.DataSize; $i++)
-        {
-            if($i -lt $packetData.PacketOffset -and $i -ge $packetData.MetadataOffset)
-            {
-                $pktmonRawData[$i] = $packetData.Data[$i];
-            }
-            elseif($i -ge $packetData.PacketOffset -and $this.rawPacketData.Count -gt 0)
-            {
-                $this.rawPacketData[$i - $packetData.PacketOffset] = $packetData.Data[$i];
-            }
-        }
-        $this.PktmonMetaData = [PktmonMetaData]::new($pktmonRawData)
+        [Byte[]] $this.rawPacketData = $packetData.Data[$packetData.PacketOffset..($packetData.Data.Count - 1)]
 
         if([PacketData]::ParsePackets -and $this.RawPacketData.Count -ge 14)
         {
@@ -490,7 +482,7 @@ Class ParsedPacket
         $this.LinkLayerData = $null
         $etherType = $null
         $ipv4Tmp = $null
-        $this.TimeStamp = $ptkmonMetaData.TimeStamp.ToLocalTime()
+        $this.TimeStamp = [DateTime]::FromFileTimeUtc($ptkmonMetaData.TimeStamp).ToLocalTime()
 
         if($ptkmonMetaData.DirectionName -eq [PKTMON_DIRECTION_TAG]::PktMonDirTag_In`
         -or $ptkmonMetaData.DirectionName -eq [PKTMON_DIRECTION_TAG]::PktMonDirTag_Rx`

@@ -1,8 +1,7 @@
 ﻿Add-Type @"
 using System;
-using System.Collections;
+using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
-using System.Collections.Generic;
 
 [StructLayout(LayoutKind.Sequential)]
 public struct PACKETMONITOR_REALTIME_STREAM_CONFIGURATION
@@ -57,7 +56,7 @@ public delegate void PACKETMONITOR_STREAM_DATA_CALLBACK(IntPtr zeroPtr, PACKETMO
 public static class PktMonApi
 {
     public static PACKETMONITOR_STREAM_DATA_CALLBACK DataCallback;
-    public static List<PSPacketData> PacketDataArrayList = new List<PSPacketData>();
+    public static ConcurrentQueue<PSPacketData> PacketDataCQ = new ConcurrentQueue<PSPacketData>();
 
     [DllImport("pktmonapi.dll", CallingConvention = CallingConvention.Winapi)]
     public static extern int PacketMonitorInitialize
@@ -136,8 +135,7 @@ public static class PktMonApi
         IntPtr session,
         [MarshalAs(UnmanagedType.U1)] bool active
     );
-
-
+    
     private static void PacketDataCallBack(IntPtr userContext, PACKETMONITOR_STREAM_DATA_DESCRIPTOR descriptor)
     {
         Byte[] byteArray = new Byte[descriptor.DataSize];
@@ -150,28 +148,34 @@ public static class PktMonApi
             descriptor.MissedPacketWriteCount, descriptor.MissedPacketReadCount
         );
         
-        PacketDataArrayList.Add(tmp);
-    }
-
-    public static PSPacketData[] GetPacketData()
-    {
-        int count = PacketDataArrayList.Count;
-        PSPacketData[] returnArr = new PSPacketData[count];
-        for (int i = 0; i < count; i++)
-        {
-            returnArr[i] = PacketDataArrayList[i];
-        }
-        PacketDataArrayList.RemoveRange(0, count);
-        return returnArr;
+        PacketDataCQ.Enqueue(tmp);
     }
     
-    public static IntPtr CreateRealtimeStream(IntPtr PktmonHandle, PACKETMONITOR_REALTIME_STREAM_CONFIGURATION cfg)
+    public static void ClearPacketBuffer()
+    {
+        PSPacketData packet;
+        while (PacketDataCQ.TryDequeue(out packet)){}
+    }
+    
+    public static int GetPacketData(PSPacketData[] buffer)
+    {
+        int i = 0;
+        PSPacketData packet;
+        while(i < buffer.Length && PacketDataCQ.TryDequeue(out packet))
+        {
+            buffer[i++] = packet;
+        }
+
+        return i;
+    }
+    
+    public static IntPtr CreateRealtimeStream(IntPtr pktmonHandle, PACKETMONITOR_REALTIME_STREAM_CONFIGURATION cfg)
     {
         DataCallback = new PACKETMONITOR_STREAM_DATA_CALLBACK(PacketDataCallBack);
         cfg.DataCallback = Marshal.GetFunctionPointerForDelegate(DataCallback);
         IntPtr streamHandle = IntPtr.Zero;
         
-        var hr = PacketMonitorCreateRealtimeStream(PktmonHandle, ref cfg, out streamHandle);
+        var hr = PacketMonitorCreateRealtimeStream(pktmonHandle, ref cfg, out streamHandle);
         if (hr != 0)
         {
             return IntPtr.Zero;

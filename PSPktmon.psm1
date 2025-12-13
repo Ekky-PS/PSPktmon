@@ -1,22 +1,22 @@
 ﻿#requires -RunAsAdministrator
 
-if($script:PSPktmon)
+if($PSPktmon)
 {
-    $script:PSPktmon.PacketMonitorUninitialize()
+    $PSPktmon.PacketMonitorUninitialize()
 }
 
-$script:PSPktmon = [PSPktmon]::new();
+$PSPktmon = [PSPktmon]::new();
 
 function Initialize-PktMon 
 {
-    $script:PSPktmon.PacketMonitorInitialize();
+    $PSPktmon.PacketMonitorInitialize();
 }
 
 function Stop-PktMon 
 {
-    if($script:PSPktmon)
+    if($PSPktmon)
     {
-        $script:PSPktmon.PacketMonitorUninitialize();
+        $PSPktmon.PacketMonitorUninitialize();
     }
 }
 
@@ -24,11 +24,11 @@ function Start-PktmonAuto
 {
     Initialize-PktMon
     $session = Get-PktMonSession
-    $pktmonAdapterSources = Get-PktMonAdapter
+    $pktmonDataSources = Get-PktMonDataSources
 
-    for($i = 0; $i -lt $pktmonAdapterSources.Count; $i++)
+    for($i = 0; $i -lt $pktmonDataSources.Count; $i++)
     {
-        Add-PktMonDataSource -Session $session -Adapter $pktmonAdapterSources[$i]
+        Add-PktMonDataSourceToSession -Session $session -DataSource $pktmonDataSources[$i]
     }
 
     $realTimeStream = Get-PktmonRealtimeStreamHandle
@@ -36,7 +36,7 @@ function Start-PktmonAuto
     Start-PktmonSession -Session $session
 }
 
-function Get-PktMonAdapter 
+function Get-PktMonDataSources
 {
     param
     (
@@ -44,35 +44,33 @@ function Get-PktMonAdapter
         [int]$SourceKind = 1
     )
 
-    return ($script:PSPktmon.PacketMonitorEnumDataSources($ShowHidden, $SourceKind));
+    return ($PSPktmon.PacketMonitorEnumDataSources($ShowHidden, $SourceKind));
 }
-
-
 
 function Get-PktMonSession 
 {
     param([string] $Name = "PktmonSession")
 
-    return $script:PSPktmon.PacketMonitorCreateLiveSession($Name);
+    return $PSPktmon.PacketMonitorCreateLiveSession($Name);
 }
 
-function Add-PktMonDataSource 
+function Add-PktMonDataSourceToSession 
 {
     param
     (
         [Parameter(Mandatory)]$Session, 
-        [Parameter(Mandatory)]$Adapter
+        [Parameter(Mandatory)]$DataSource
     )
 
     if ($Session -isnot [PktmonSession]) 
     {
         throw "Session must be a [PktmonSession]"
     }
-    if($adapter -isnot [PktmonAdapter])
+    if($DataSource -isnot [PktmonDataSource])
     {
-         throw "Adapter must be a [PktmonAdapter]"
+         throw "DataSource must be a [PktmonDataSource]"
     }
-    $Session.PacketMonitorAddSingleDataSourceToSession($adapter)
+    $Session.PacketMonitorAddSingleDataSourceToSession($DataSource)
 }
 
 function Get-PktmonRealtimeStreamHandle
@@ -83,7 +81,7 @@ function Get-PktmonRealtimeStreamHandle
         [uint16] $TruncationSize = 9000
     )
     
-    return $script:PSPktmon.CreateRealtimeStream($BufferSizeMultiplier, $TruncationSize)
+    return $PSPktmon.CreateRealtimeStream($BufferSizeMultiplier, $TruncationSize)
 }
 
 function Close-PktmonRealTimeStreamHandle
@@ -96,7 +94,7 @@ function Close-PktmonRealTimeStreamHandle
     {
         throw "PktmonRealTimeStream must be a [PktmonRealTimeStream]"
     }
-    $script:PSPktmon.PacketMonitorCloseRealtimeStream($realTimeStream);
+    $PSPktmon.PacketMonitorCloseRealtimeStream($realTimeStream);
 }
 
 function Add-PktmonRealTimeStreamToSession
@@ -155,12 +153,12 @@ function Close-PktmonSession
     {
         throw "Session must be a PktmonSession"
     }
-    $script:PSPktmon.PacketMonitorCloseSessionHandle($session)
+    $PSPktmon.PacketMonitorCloseSessionHandle($session)
 }
 
 function Get-PktmonPackets
 {
-    return $script:PSPktmon.GetAllPackets();
+    return $PSPktmon.GetAllPackets();
 }
 function Get-PktmonPacketMissedCount
 {
@@ -180,6 +178,16 @@ function Set-PktmonPacketParsing
     [PacketData]::ParsePackets = $State
 }
 
+function Clear-PktmonPacketBuffer
+{
+    [PktMonApi]::ClearPacketBuffer()    
+}
+
+function Get-PktmonPacketsInBuffer
+{
+    return [PktMonApi]::PacketDataCQ.Count
+}
+
 function Write-ToHex
 {
     param
@@ -188,5 +196,4 @@ function Write-ToHex
     )
     [BitUtils]::toHex($ByteArray)
 }
-
-Register-EngineEvent PowerShell.Exiting -Action { Stop-PktMon;}
+Register-EngineEvent PowerShell.Exiting -Action {Stop-PktMon}
