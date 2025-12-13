@@ -14,80 +14,71 @@ And create a started [PktmonSession] with all Network interfaces and a [PktmonRe
 ```
 Start-PktmonAuto
 ```
-
+<br/>
 Initializes Packet Monitor and gets a Handle to the Packet Monitor. (Module will keep track of the Handle)
 ```
 Initialize-PktMon
 ```
-
+<br/>
 Creates an independent Packet Monitor session.
 ```
 Get-PktMonSession
 ```
 Returns a [PktmonSession] object.
-
+<br/>
 Retrieves list of [PktmonDataSource] to be used for attaching to a [PktmonSession]
 ```
 Get-PktMonDataSources
 ```
 Returns an array of [PktmonDataSource]
-
+<br/>
 Add a [PktmonDataSource] as a source to a [PktmonSession]<br/>
-param<br/>
-(<br/>
-    [PktmonSession]$Session,<br/>
-    [PktmonDataSource]$DataSource<br/>
-)
+params:<br/>
+[PktmonSession]$Session,<br/>
+[PktmonDataSource]$DataSource
 ```
 Add-PktMonDataSourceToSession
 ```
-
+<br/>
 Creates an independent Packet Monitor RealtimeStream.
 ```
 Get-PktmonRealtimeStreamHandle
 ```
 Returns a [PktmonRealTimeStream] object.
-
+<br/>
 Add a [PktmonRealTimeStream] as a source to a [PktmonSession]<br/>
-param<br/>
-(<br/>
-    [PktmonSession]$Session,<br/>
-    [PktmonRealTimeStream]$PktmonRealTimeStream<br/>
-)
+param:<br/>
+[PktmonSession]$Session,<br/>
+[PktmonRealTimeStream]$PktmonRealTimeStream
 ```
 Add-PktmonRealTimeStreamToSession
 ```
-
+<br/>
 Sets a [PktmonSession] as Active. This will start the Packet capturing<br/>
-param<br/>
-(<br/>
-    [PktmonSession]$Session<br/>
-)
+params:<br/>
+[PktmonSession]$Session<br/>
 ```
 Start-PktmonSession
 ```
-
-
+<br/>
 Sets if the module should attempt to parse the packets. (Default: $True)<br/>
-param<br/>
-(<br/>
-    [Bool]$State<br/>
-)
+params:<br/>
+[Bool]$State<br/>
 ```
 Set-PktmonPacketParsing
 ```
-
+<br/>
 Returns all captured packets from active sessions since last called.
 ```
 Get-PktmonPackets
 ```
 Returns an array of [PacketData]
-
+<br/>
 Stop PSPktmon and clears all handles and pointers.
 ```
 Stop-PktMon
 ```
-
+<br/>
 Example PS Script that prints IPv4 Data from ICMP packets and the payload.
 ```
 Import-Module PSPktmon
