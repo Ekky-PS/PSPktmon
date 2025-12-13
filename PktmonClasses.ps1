@@ -121,7 +121,7 @@ class PSPktmon
     {
         if ($this.PktMonHandle -eq [IntPtr]::Zero) { throw "Pktmon not initialized" }
         
-        $id =  $this.OpenPktmonRealTimeStreams.Count
+        #$id =  $this.OpenPktmonRealTimeStreams.Count
         $config = [PACKETMONITOR_REALTIME_STREAM_CONFIGURATION]::new()
         $config.UserContext = [IntPtr] [PktmonRealTimeStream]::Index
         $config.EventCallback = [IntPtr]::Zero
@@ -228,22 +228,20 @@ class PSPktmon
 
 class PktmonDataSource
 {
-    [int] $Length;
+    hidden [int] $Length;
     [string] $Name
     [string] $Description
     [int] $ID 
     [int] $SecondaryID
     [int] $ParentID
-    [IntPtr] $Pointer
+    hidden [IntPtr] $Pointer
     [int] $Type
     [string] $MacAddress
-    [byte[]] $RawBytes
 
     PktmonDataSource([IntPtr] $pointer)
     {
         $this.Pointer = $pointer
         $this.Length = 424
-        $this.RawBytes = [Byte[]]::new($this.Length);
         $this.type = [System.Runtime.InteropServices.Marshal]::ReadInt32($this.pointer, 0)
         $this.name = $this.ReadWCharStringAtOffset(4)
         $this.description = $this.ReadWCharStringAtOffset(132)
@@ -261,7 +259,6 @@ class PktmonDataSource
             }
         }
         
-        [System.Runtime.InteropServices.Marshal]::Copy($this.pointer, $this.RawBytes , 0, $this.length)
     }
 
     [string] ReadWCharStringAtOffset([int] $Offset)
@@ -457,9 +454,14 @@ class PacketData
         [PacketData]::MissedPacketWriteCount = $packetData.MissedPacketWriteCount
         [PacketData]::MissedPacketReadCount = $packetData.MissedPacketReadCount
         
-        $this.PktmonMetaData = [PktmonMetaData]::new($packetData.Data[$packetData.MetadataOffset..39])
+        $length = 39 - $packetData.MetadataOffset + 1
+        $metaBytes = [byte[]]::new($length)
+        [Array]::Copy($packetData.Data, $packetData.MetadataOffset, $metaBytes, 0, $length)
+        $this.PktmonMetaData = [PktmonMetaData]::new($metaBytes)
 
-        [Byte[]] $this.rawPacketData = $packetData.Data[$packetData.PacketOffset..($packetData.Data.Count - 1)]
+        $length = $packetData.Data.Count - $packetData.PacketOffset
+        $this.rawPacketData = [byte[]]::new($length)
+        [Array]::Copy($packetData.Data, $packetData.PacketOffset, $this.rawPacketData, 0, $length)
 
         if([PacketData]::ParsePackets -and $this.RawPacketData.Count -ge 14)
         {
@@ -561,7 +563,11 @@ Class ParsedPacket
             {
                 $EndByteIndex  = $PacketByteArray.Count - 1;
             }
-            $ProtocolByteArray = $PacketByteArray[$StartByteIndex..$EndByteIndex]
+
+            $length = $EndByteIndex - $StartByteIndex + 1
+            $ProtocolByteArray = [byte[]]::new($length)
+            [Array]::Copy($PacketByteArray, $StartByteIndex, $ProtocolByteArray, 0, $length)
+
 
             if($this.IPv4Data.Protocol -eq [IPv4Protocol]::ICMP)
             {
@@ -710,19 +716,11 @@ Class ICMPData
         $this.Type = [ICMP4_TYPE]$ByteArray[0]
         $this.Code = $ByteArray[1]
         $this.CheckSum = [BitUtils]::ToUInt16BigEndian($ByteArray, 2)
+        $this.UnparsedHeaders = $ByteArray[4..7]
 
-        $this.UnparsedHeaders = [Byte[]]::new(4)
-        for($i = 4; $i -lt 8; $i++)
-        {
-            $this.UnparsedHeaders[$i-4] = $ByteArray[$i];
-        }
-
-        $this.Data = [Byte[]]::new($ByteArray.Count - 8)
-        for($i = 8; $i -lt $ByteArray.Count; $i++)
-        {
-            $this.Data[$i-8] = $ByteArray[$i];
-        }
-
+        $length = $ByteArray.Count - 8
+        $this.Data = [byte[]]::new($length)
+        [Array]::Copy($ByteArray, 8, $this.Data, 0, $length)
     }
 }
 
@@ -758,20 +756,17 @@ Class TCPData
         $this.Checksum = [BitUtils]::ToUInt16BigEndian($ByteArray, 16)
         $this.UrgentPointer = [BitUtils]::ToUInt16BigEndian($ByteArray, 18)
         if($this.size -lt 20){return}
-        $this.Options = [Byte[]]::new($this.size - 20); 
-        for($i = 20; $i -lt $this.size -and $i -lt $ByteArray.Count; $i++)
-        {
-            $this.Options[$i - 20] = $ByteArray[$i];
-        }
-        if($ByteArray.Count - $this.Size -lt 0)
-        {
-            return 
-        }
-        $this.Data = [Byte[]]::new($ByteArray.Count - $this.size) 
-        for($i = $this.Size; $i -lt $ByteArray.Count; $i++)
-        {
-            $this.Data[$i - $this.size] = $ByteArray[$i];
-        }
+
+        $length = [Math]::Min($this.size - 20, $ByteArray.Count - 20)
+        $this.Options = [byte[]]::new($length)
+        [Array]::Copy($ByteArray, 20, $this.Options, 0, $length)
+        
+        if($ByteArray.Count - $this.Size -lt 0){ return }
+
+        $length = $ByteArray.Count - $this.Size
+        $this.Data = [byte[]]::new($length)
+        [Array]::Copy($ByteArray, $this.Size, $this.Data, 0, $length)
+
     }
 }
 
@@ -938,7 +933,7 @@ class IPv4Data
             }
             if ($matchSnap) { $candidateIndex = $i + 8 }
 
-            if ($candidateIndex -ne $null -and $candidateIndex + 20 -le $PacketBytes.Count)
+            if ($null -ne $candidateIndex -and $candidateIndex + 20 -le $PacketBytes.Count)
             {
                 $tmpVersion = $PacketBytes[$candidateIndex] -shr 4
                 $tmpIhlWords = $PacketBytes[$candidateIndex] -band 0x0F

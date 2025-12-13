@@ -1,121 +1,160 @@
 # PSPktmon
-A PowerShell wrapper module for interacting with the Pktmon API to capture and analyze network packets in real-time.
 
-## Download
-Download from PowerShell Gallery:
-```
+PSPktmon is a PowerShell module that wraps the Windows Pktmonapi.dll, allowing real-time capture and analysis of network packets.
+
+---
+
+## Installation
+
+```powershell
 Install-Module PSPktmon
 ```
 
-## Usage
-For fast setup<br/>
-Will Initializes Packet Monitor<br/>
-And create a started [PktmonSession] with all Network interfaces and a [PktmonRealTimeStream] attached.
-```
+---
+
+## Quick Start
+
+```powershell
 Start-PktmonAuto
 ```
 
-Initializes Packet Monitor and gets a Handle to the Packet Monitor. (Module will keep track of the Handle)
-```
+This command:
+- Initializes Packet Monitor
+- Creates and starts a PktmonSession
+- Attaches all network interfaces
+- Attaches a PktmonRealTimeStream
+
+---
+
+## Commands
+
+### Initialize Packet Monitor
+
+```powershell
 Initialize-PktMon
 ```
 
-Creates an independent Packet Monitor session.
-```
+Initializes Packet Monitor and manages the handle internally.
+
+---
+
+### Create a Session
+
+```powershell
 Get-PktMonSession
 ```
-Returns a [PktmonSession] object.
 
-Retrieves list of [PktmonDataSource] to be used for attaching to a [PktmonSession]
-```
+Returns a PktmonSession object.
+
+---
+
+### Get Data Sources
+
+```powershell
 Get-PktMonDataSources
 ```
-Returns an array of [PktmonDataSource]
 
-Add a [PktmonDataSource] as a source to a [PktmonSession]<br/>
-params:<br/>
-[PktmonSession]$Session,<br/>
-[PktmonDataSource]$DataSource
-```
+Returns available PktmonDataSource objects.
+
+---
+
+### Add Data Source to Session
+
+```powershell
 Add-PktMonDataSourceToSession
 ```
 
-Creates an independent Packet Monitor RealtimeStream.
-```
+Parameters:
+- PktmonSession Session
+- PktmonDataSource DataSource
+
+---
+
+### Create a Real-Time Stream
+
+```powershell
 Get-PktmonRealtimeStreamHandle
 ```
-Returns a [PktmonRealTimeStream] object.
 
-Add a [PktmonRealTimeStream] as a source to a [PktmonSession]<br/>
-param:<br/>
-[PktmonSession]$Session,<br/>
-[PktmonRealTimeStream]$PktmonRealTimeStream
-```
+Returns a PktmonRealTimeStream object.
+
+---
+
+### Add Stream to Session
+
+```powershell
 Add-PktmonRealTimeStreamToSession
 ```
 
-Sets a [PktmonSession] as Active. This will start the Packet capturing<br/>
-params:<br/>
-[PktmonSession]$Session<br/>
-```
+Parameters:
+- PktmonSession Session
+- PktmonRealTimeStream PktmonRealTimeStream
+
+---
+
+### Start Session
+
+```powershell
 Start-PktmonSession
 ```
 
-Sets if the module should attempt to parse the packets. (Default: $True)<br/>
-params:<br/>
-[Bool]$State<br/>
-```
+Starts packet capture.
+
+---
+
+### Enable or Disable Parsing
+
+```powershell
 Set-PktmonPacketParsing
 ```
 
-Returns all captured packets from active sessions since last called.
-```
+Default is true.
+
+---
+
+### Get Captured Packets
+
+```powershell
 Get-PktmonPackets
 ```
-Returns an array of [PacketData]
 
-Stop PSPktmon and clears all handles and pointers.
-```
+Returns PacketData objects captured since the last call.
+
+---
+
+### Stop Packet Monitor
+
+```powershell
 Stop-PktMon
 ```
 
-Example PS Script that prints IPv4 Data from ICMP packets and the payload.
-```
+Releases all handles and resources.
+
+---
+
+## Example: ICMP Packet Capture
+
+```powershell
 Import-Module PSPktmon
 Start-PktmonAuto
 
-[System.Collections.ArrayList] $ICMPPackets = [System.Collections.ArrayList]::new()
+$ICMPPackets = [System.Collections.ArrayList]::new()
 
-try
-{
-    while($true)
-    {
-        $RetrievedPackets = Get-PktmonPackets 
-
-        foreach($packet in $RetrievedPackets)
-        {
-            if($packet.ParsedPacket.IPv4Data.Protocol -eq "ICMP")
-            {
+try {
+    while ($true) {
+        foreach ($packet in Get-PktmonPackets) {
+            if ($packet.ParsedPacket.IPv4Data.Protocol -eq 'ICMP') {
                 $ICMPPackets.Add($packet) | Out-Null
-                Write-host "Source Address: $($packet.ParsedPacket.IPv4Data.SourceAddress)"
-                Write-host "Destination Address: $($packet.ParsedPacket.IPv4Data.DestinationAddress)"
-                Write-host "Direction: $($packet.ParsedPacket.PacketDirection)"
-                Write-host "ICMP Type: $($packet.ParsedPacket.ProtocolData.Type)"
-                Write-host "Timestamp: $($packet.ParsedPacket.TimeStamp)"
-                if($packet.ParsedPacket.ProtocolData.Data.Count -gt 0)
-                {
-                    Write-host "Payload Data"
-                    Write-host "-----------------------------------------------------------------------------"
-                    Write-ToHex $packet.ParsedPacket.ProtocolData.Data
-                    Write-host "-----------------------------------------------------------------------------"
-                }
-                Write-host ""
+
+                Write-Host "Source: $($packet.ParsedPacket.IPv4Data.SourceAddress)"
+                Write-Host "Destination: $($packet.ParsedPacket.IPv4Data.DestinationAddress)"
+                Write-Host "Type: $($packet.ParsedPacket.ProtocolData.Type)"
+                Write-Host "Timestamp: $($packet.ParsedPacket.TimeStamp)"
             }
         }
     }
 }
-finally
-{
+finally {
     Stop-PktMon
 }
 ```

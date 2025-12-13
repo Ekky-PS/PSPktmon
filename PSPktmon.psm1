@@ -58,18 +58,10 @@ function Add-PktMonDataSourceToSession
 {
     param
     (
-        [Parameter(Mandatory)]$Session, 
-        [Parameter(Mandatory)]$DataSource
+        [Parameter(Mandatory)][PktmonSession]$Session, 
+        [Parameter(Mandatory)][PktmonDataSource]$DataSource
     )
 
-    if ($Session -isnot [PktmonSession]) 
-    {
-        throw "Session must be a [PktmonSession]"
-    }
-    if($DataSource -isnot [PktmonDataSource])
-    {
-         throw "DataSource must be a [PktmonDataSource]"
-    }
     $Session.PacketMonitorAddSingleDataSourceToSession($DataSource)
 }
 
@@ -88,12 +80,9 @@ function Close-PktmonRealTimeStreamHandle
 {
     param
     (
-        [Parameter(Mandatory)]$PktmonRealTimeStream
+        [Parameter(Mandatory)][PktmonRealTimeStream]$PktmonRealTimeStream
     )
-    if ($PktmonRealTimeStream -isnot [PktmonRealTimeStream]) 
-    {
-        throw "PktmonRealTimeStream must be a [PktmonRealTimeStream]"
-    }
+
     $PSPktmon.PacketMonitorCloseRealtimeStream($realTimeStream);
 }
 
@@ -101,17 +90,9 @@ function Add-PktmonRealTimeStreamToSession
 {
     param
     (
-        [Parameter(Mandatory)]$Session,
-        [Parameter(Mandatory)]$PktmonRealTimeStream
+        [Parameter(Mandatory)][PktmonSession]$Session,
+        [Parameter(Mandatory)][PktmonRealTimeStream]$PktmonRealTimeStream
     )
-    if ($Session -isnot [PktmonSession]) 
-    {
-        throw "Session must be a [PktmonSession]"
-    }
-    if ($Session -isnot [PktmonSession]) 
-    {
-        throw "PktmonRealTimeStream must be a [PktmonRealTimeStream]"
-    }
     
     $Session.PacketMonitorAttachOutputToSession($PktmonRealTimeStream);
 }
@@ -120,12 +101,9 @@ function Start-PktmonSession
 {
     param
     (
-        [Parameter(Mandatory)]$Session
+        [Parameter(Mandatory)][PktmonSession]$Session
     )
-    if ($Session -isnot [PktmonSession]) 
-    {
-        throw "Session must be a PktmonSession"
-    }
+
     $Session.PacketMonitorSetSessionActive($true)
     Write-host "Pktmon session: $($session.Name) started"
 }
@@ -134,12 +112,9 @@ function Stop-PktmonSession
 {
     param
     (
-        [Parameter(Mandatory)]$Session
+        [Parameter(Mandatory)][PktmonSession]$Session
     )
-    if ($Session -isnot [PktmonSession]) 
-    {
-        throw "Session must be a PktmonSession"
-    }
+
     $Session.PacketMonitorSetSessionActive($false)
 }
 
@@ -147,12 +122,9 @@ function Close-PktmonSession
 {
     param
     (
-        [Parameter(Mandatory)]$Session
+        [Parameter(Mandatory)][PktmonSession]$Session
     )
-    if ($Session -isnot [PktmonSession]) 
-    {
-        throw "Session must be a PktmonSession"
-    }
+
     $PSPktmon.PacketMonitorCloseSessionHandle($session)
 }
 
