@@ -8,8 +8,8 @@ Install-Module PSPktmon
 ```
 
 ## Usage
-For fast setup 
-Will Initializes Packet Monitor
+For fast setup<br/>
+Will Initializes Packet Monitor<br/>
 And create a started [PktmonSession] with all Network interfaces and a [PktmonRealTimeStream] attached.
 ```
 Start-PktmonAuto
@@ -32,11 +32,11 @@ Get-PktMonDataSources
 ```
 Returns an array of [PktmonDataSource]
 
-Add a [PktmonDataSource] as a source to a [PktmonSession]
-param
-(
-    [PktmonSession]$Session, 
-    [PktmonDataSource]$DataSource
+Add a [PktmonDataSource] as a source to a [PktmonSession]<br/>
+param<br/>
+(<br/>
+    [PktmonSession]$Session,<br/>
+    [PktmonDataSource]$DataSource<br/>
 )
 ```
 Add-PktMonDataSourceToSession
@@ -48,30 +48,30 @@ Get-PktmonRealtimeStreamHandle
 ```
 Returns a [PktmonRealTimeStream] object.
 
-Add a [PktmonRealTimeStream] as a source to a [PktmonSession]
-param
-(
-    [PktmonSession]$Session,
-    [PktmonRealTimeStream]$PktmonRealTimeStream
+Add a [PktmonRealTimeStream] as a source to a [PktmonSession]<br/>
+param<br/>
+(<br/>
+    [PktmonSession]$Session,<br/>
+    [PktmonRealTimeStream]$PktmonRealTimeStream<br/>
 )
 ```
 Add-PktmonRealTimeStreamToSession
 ```
 
-Sets a [PktmonSession] as Active. This will start the Packet capturing
-param
-(
-    [PktmonSession]$Session
+Sets a [PktmonSession] as Active. This will start the Packet capturing<br/>
+param<br/>
+(<br/>
+    [PktmonSession]$Session<br/>
 )
 ```
 Start-PktmonSession
 ```
 
 
-Sets if the module should attempt to parse the packets. (Default: $True)
-param
-(
-    [Bool]$State
+Sets if the module should attempt to parse the packets. (Default: $True)<br/>
+param<br/>
+(<br/>
+    [Bool]$State<br/>
 )
 ```
 Set-PktmonPacketParsing
