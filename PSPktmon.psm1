@@ -105,7 +105,7 @@ function Start-PktmonSession
     )
 
     $Session.PacketMonitorSetSessionActive($true)
-    Write-host "Pktmon session: $($session.Name) started"
+    
 }
 
 function Stop-PktmonSession

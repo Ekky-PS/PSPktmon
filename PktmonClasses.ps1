@@ -60,7 +60,7 @@ class PSPktmon
         $session = [IntPtr]::Zero
         $res = [PktMonApi]::PacketMonitorCreateLiveSession($this.PktMonHandle, $Name, [ref]$session)
         if ($res -ne 0) { throw "Failed to create session: 0x{0:X}" -f $res }
-        Write-Host "Live session created: $Name, handle = $session"
+        [PktmonUtils]::WriteInformation("Live session created: $Name, handle = $session")
 
         $pktmonSession = [PktmonSession]::new($name, $session)
         $null = $this.OpenPktmonSessions.Add($pktmonSession)
@@ -133,7 +133,7 @@ class PSPktmon
         if ($RSPtr  -eq [IntPtr]::Zero) { throw "Failed to create realtime stream."}
 
         $realTimeStream = [PktmonRealTimeStream]::new($BufferSizeMultiplier, $TruncationSize, $RSPtr)
-        Write-host "Real time stream created: handle = $($realTimeStream.Handle)" 
+        [PktmonUtils]::WriteInformation("Real time stream created: handle = $($realTimeStream.Handle)") 
 
         $null = $this.OpenPktmonRealTimeStreams.Add($realTimeStream);
         return $realTimeStream
@@ -144,7 +144,7 @@ class PSPktmon
         if ($this.PktMonHandle -eq [IntPtr]::Zero) { throw "Pktmon not initialized" }
         $tmpHandle = $realTimeStream.Handle
         $realTimeStream.PacketMonitorCloseRealtimeStream()
-        Write-host "Real time stream closed: handle = $($tmpHandle)"
+        [PktmonUtils]::WriteInformation("Real time stream closed: handle = $($tmpHandle)")
         foreach($session in $this.OpenPktmonSessions)
         {
             $session.RemoveOutputFromSession($realTimeStream);
@@ -223,7 +223,19 @@ class PSPktmon
         }
         return $returnArray;
     }
+}
 
+class PktmonUtils
+{
+    static [bool] $WriteInfo = $true
+
+    static [Void] WriteInformation([string] $info)
+    {
+        if([PktmonUtils]::WriteInfo)
+        {
+            Write-host $info
+        }
+    }
 }
 
 class PktmonDataSource
@@ -316,6 +328,7 @@ class PktmonSession
         if($this.handle -eq [IntPtr]::Zero) {Throw "Null pointer"}
         $res = [PktMonApi]::PacketMonitorSetSessionActive($this.handle, $active)
         if ($res -ne 0) { throw "Failed to start session: 0x{0:X}" -f $res }
+        [PktmonUtils]::WriteInformation("Pktmon session state: $($this.Name) set to $active")
         $this.active = $active;
     }
 
@@ -323,7 +336,7 @@ class PktmonSession
     {
         $res = [PktMonApi]::PacketMonitorAddSingleDataSourceToSession($this.handle, $DataSource.Pointer)
         if ($res -ne 0) { throw "Failed to add data source: 0x{0:X}" -f $res }
-        Write-Host "Data source added to session: handle = $($this.handle)"
+        [PktmonUtils]::WriteInformation("Data source added to session: handle = $($this.handle)")
         $null = $this.AttachedDataSources.Add($DataSource)
     }
     
@@ -331,7 +344,7 @@ class PktmonSession
     {
         $res = [PktMonApi]::PacketMonitorAttachOutputToSession($this.handle, $realTimeStream.Handle)
         if ($res -ne 0) { throw "Failed to attach realtime stream to session: 0x{0:X}" -f $res }
-        Write-host "Real time stream : handle = $realTimeStream attached to session: handle = $($this.handle)"
+        [PktmonUtils]::WriteInformation("Real time stream : handle = $realTimeStream attached to session: handle = $($this.handle)")
         $null = $this.AttachedOutputStream.Add($realTimeStream)
     }
     [void] RemoveOutputFromSession([PktmonRealTimeStream] $realTimeStream)
@@ -512,7 +525,6 @@ Class ParsedPacket
                 if($this.LinkLayerData -and $etherType -eq 0x0800 `
                 -and $PacketByteArray.Count -gt $this.LinkLayerData.PayloadOffset `
                 -and $PacketByteArray[$this.LinkLayerData.PayloadOffset] -eq 0x45)
-
                 {
                     $ipv4Tmp = [IPv4Data]::new($PacketByteArray, $this.LinkLayerData.PayloadOffset)
                 }

@@ -44,7 +44,7 @@ Initializes Packet Monitor and manages the handle internally.
 Get-PktMonSession
 ```
 
-Returns a PktmonSession object.
+Returns a [PktmonSession] object.
 
 ---
 
@@ -54,7 +54,7 @@ Returns a PktmonSession object.
 Get-PktMonDataSources
 ```
 
-Returns available PktmonDataSource objects.
+Returns available [PktmonDataSource] objects.
 
 ---
 
@@ -65,8 +65,8 @@ Add-PktMonDataSourceToSession
 ```
 
 Parameters:
-- PktmonSession Session
-- PktmonDataSource DataSource
+- [PktmonSession] $Session
+- [PktmonDataSource] $DataSource
 
 ---
 
@@ -76,7 +76,7 @@ Parameters:
 Get-PktmonRealtimeStreamHandle
 ```
 
-Returns a PktmonRealTimeStream object.
+Returns a [PktmonRealTimeStream] object.
 
 ---
 
@@ -87,8 +87,8 @@ Add-PktmonRealTimeStreamToSession
 ```
 
 Parameters:
-- PktmonSession Session
-- PktmonRealTimeStream PktmonRealTimeStream
+- [PktmonSession] $Session
+- [PktmonRealTimeStream] $RealTimeStream
 
 ---
 
@@ -118,7 +118,7 @@ Default is true.
 Get-PktmonPackets
 ```
 
-Returns PacketData objects captured since the last call.
+Returns [PacketData] objects captured since the last call.
 
 ---
 
