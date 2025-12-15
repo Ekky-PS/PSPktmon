@@ -168,4 +168,55 @@ function Write-ToHex
     )
     [BitUtils]::toHex($ByteArray)
 }
+
+function Start-TheMatrix
+{
+    param
+    (
+        [ValidateSet('Hex','Ascii','Binary')]
+        [string] $Mode
+    )
+    if($Mode -eq "Hex")
+    {
+        [ByteRain]::Intitalize(0)
+    }
+    if($Mode -eq "Ascii")
+    {
+        [ByteRain]::Intitalize(1)
+    }
+    if($Mode -eq "Binary")
+    {
+        [ByteRain]::Intitalize(2)
+    }
+    
+    try
+    {
+        while($true)
+        {
+            $RetrievedPackets = Get-PktmonPackets 
+
+            foreach($packet in $RetrievedPackets)
+            {
+                [ByteRain]::AddDrop($packet.RawPacketData)
+            }
+            Start-Sleep -Milliseconds 15
+            [ByteRain]::TickDrops()
+        }
+    }
+    finally
+    {
+        [Console]::ForegroundColor = 'White'
+        Clear-Host
+        Stop-PktMon
+    }
+}
+function restart
+{
+    Stop-PktMon
+    $PSPktmon.PacketMonitorCloseRealtimeStream([IntPtr]::Zero)
+
+}
+
+
+
 Register-EngineEvent PowerShell.Exiting -Action {Stop-PktMon}
