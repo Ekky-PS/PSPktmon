@@ -210,13 +210,6 @@ function Start-TheMatrix
         Stop-PktMon
     }
 }
-function restart
-{
-    Stop-PktMon
-    $PSPktmon.PacketMonitorCloseRealtimeStream([IntPtr]::Zero)
-
-}
-
 
 
 Register-EngineEvent PowerShell.Exiting -Action {Stop-PktMon}

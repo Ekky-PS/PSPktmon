@@ -132,6 +132,13 @@ Releases all handles and resources.
 
 ---
 
+### If you are The One
+
+```powershell
+Start-TheMatrix -Mode Binary # Binary / Hex / Ascii
+```
+
+
 ## Example: ICMP Packet Capture
 
 ```powershell
@@ -150,6 +157,13 @@ try {
                 Write-Host "Destination: $($packet.ParsedPacket.IPv4Data.DestinationAddress)"
                 Write-Host "Type: $($packet.ParsedPacket.ProtocolData.Type)"
                 Write-Host "Timestamp: $($packet.ParsedPacket.TimeStamp)"
+                if($packet.ParsedPacket.ProtocolData.Data.Count -gt 0){
+                    Write-host "Payload Data"
+                    Write-host "-----------------------------------------------------------------------------"
+                    Write-ToHex $packet.ParsedPacket.ProtocolData.Data
+                    Write-host "-----------------------------------------------------------------------------"
+                }
+                Write-host ""
             }
         }
     }

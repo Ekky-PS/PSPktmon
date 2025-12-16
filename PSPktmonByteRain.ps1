@@ -110,6 +110,11 @@ class Drop
             {
                 $prevY = ([Console]::WindowHeight - 1)
             }
+            if($this.xPosition -ge [Console]::WindowWidth -or $prevY -ge [Console]::WindowHeight)
+            {
+                return $true
+            }
+
             [Console]::SetCursorPosition($this.xPosition, $prevY)
             Write-Host $this.Symbols[$this.index - 1] -NoNewline -ForegroundColor DarkGreen
         }
