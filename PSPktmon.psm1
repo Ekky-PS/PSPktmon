@@ -211,5 +211,55 @@ function Start-TheMatrix
     }
 }
 
+function Convert-PacketDataToPcap {
+    param (
+        [Parameter(Mandatory)]
+        [System.Collections.ArrayList] $Packets,
+
+        [Parameter(Mandatory)]
+        [string]$OutputFile
+    )
+
+    $fs = [System.IO.File]::Open($OutputFile, 'Create', 'Write')
+    $bw = New-Object System.IO.BinaryWriter($fs)
+
+    try 
+    {
+
+        $bw.Write([UInt32]2712847316)
+        $bw.Write([UInt16]2)
+        $bw.Write([UInt16]4)
+        $bw.Write([Int32]0)
+        $bw.Write([UInt32]0)
+        $bw.Write([UInt32]65535)
+        $bw.Write([UInt32]1)
+
+        foreach ($packet in $Packets) 
+        {
+            if($packet.GetType() -notlike [PacketData]){continue}
+            $TimeStamp = [DateTime]::FromFileTimeUtc([Int64]$packet.PktmonMetaData.TimeStamp).ToLocalTime()
+            $unixSeconds = [int]([DateTimeOffset]$TimeStamp).ToUnixTimeSeconds()
+
+            $microseconds = [int](($TimeStamp.Millisecond) * 1000)
+            
+
+            $length = $packet.RawPacketData.Count
+
+
+            $bw.Write([UInt32]$unixSeconds)  
+            $bw.Write([UInt32]$microseconds)
+            $bw.Write([UInt32]$length)
+            $bw.Write([UInt32]$length)
+
+            $bw.Write($packet.RawPacketData)
+        }
+    }
+    finally 
+    {
+        $bw.Close()
+        $fs.Close()
+    }
+}
+
 
 Register-EngineEvent PowerShell.Exiting -Action {Stop-PktMon}

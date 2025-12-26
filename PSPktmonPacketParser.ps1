@@ -1,4 +1,3 @@
-
 class PacketData
 {
     static [uint32] $MissedPacketWriteCount = 0;
@@ -66,26 +65,21 @@ Class ParsedPacket
 
         if($ptkmonMetaData.PacketType -eq [PKTMON_PACKET_TYPE]::PktMonPayload_WiFi)
         {
-            if([IEEE80211]::IsIEEE80211($PacketByteArray))
+            $this.LinkLayerData = [IEEE80211]::new($PacketByteArray);
+            $etherType = $this.LinkLayerData.EtherType
+            if($this.LinkLayerData -and $etherType -eq 0x0800 `
+            -and $PacketByteArray.Count -gt $this.LinkLayerData.PayloadOffset `
+            -and $PacketByteArray[$this.LinkLayerData.PayloadOffset] -eq 0x45)
             {
-                $this.LinkLayerData = [IEEE80211]::new($PacketByteArray);
-                $etherType = $this.LinkLayerData.EtherType
-                if($this.LinkLayerData -and $etherType -eq 0x0800 `
-                -and $PacketByteArray.Count -gt $this.LinkLayerData.PayloadOffset `
-                -and $PacketByteArray[$this.LinkLayerData.PayloadOffset] -eq 0x45)
-                {
-                    $ipv4Tmp = [IPv4Data]::new($PacketByteArray, $this.LinkLayerData.PayloadOffset)
-                }
+                $ipv4Tmp = [IPv4Data]::new($PacketByteArray, $this.LinkLayerData.PayloadOffset)
             }
         }
-        else
+        elseif ($ptkmonMetaData.PacketType -eq [PKTMON_PACKET_TYPE]::PktMonPayload_Ethernet)
         {
-            $EtherIITest = [BitUtils]::ToUInt16BigEndian($PacketByteArray, 12)
-            if($EtherIITest -eq 0x0800 -or $EtherIITest -eq 0x0806 -or $EtherIITest -eq 0x86DD -or $EtherIITest -eq 0x8100)
-            {
-                $this.LinkLayerData = [EthernetII]::new($PacketByteArray);
-                $etherType = $this.LinkLayerData.EtherType
-            }
+
+            $this.LinkLayerData = [EthernetII]::new($PacketByteArray);
+            $etherType = $this.LinkLayerData.EtherType
+
 
             if($this.LinkLayerData -and $etherType -eq 0x0800 -and `
                 $PacketByteArray.Count -ge 15 -and $PacketByteArray[14] -eq 0x45)
@@ -146,36 +140,6 @@ Class ParsedPacket
                 $this.ProtocolData = [UnhandledData]::new($ProtocolByteArray)
             }
 
-        }
-    }
-}
-
-
-Class EthernetII
-{
-    [String] $DestinationMacAddress
-    [String] $SourceMacAddress
-    [uint16] $EtherType
-    [bool] $VlanTag
-    [uint16] $TPID
-    [uint16] $TCI
-
-
-    EthernetII([Byte[]]$ByteArray)
-    {
-        $this.DestinationMacAddress = ($ByteArray[0..5] | ForEach-Object { $_.ToString("X2") }) -join ':'
-        $this.SourceMacAddress = ($ByteArray[6..11] | ForEach-Object { $_.ToString("X2") }) -join ':'
-        $tmp = [BitUtils]::ToUInt16BigEndian($ByteArray, 12)
-        if($tmp -eq 0x8100)
-        {
-            $this.VlanTag = $true
-            $this.TPID = $tmp 
-            $this.TCI = [BitUtils]::ToUInt16BigEndian($ByteArray, 14)
-            $this.EtherType = [BitUtils]::ToUInt16BigEndian($ByteArray, 16)
-        }
-        else
-        {
-            $this.EtherType = $tmp
         }
     }
 }

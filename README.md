@@ -132,6 +132,15 @@ Releases all handles and resources.
 
 ---
 
+### Stop Packet Monitor
+```powershell
+Convert-PacketDataToPcap
+```
+
+Parameters:
+- [System.Collections.ArrayList] $Packets
+- [String] $OutputFile
+
 ### If you are The One
 
 ```powershell

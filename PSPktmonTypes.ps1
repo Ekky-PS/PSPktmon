@@ -320,3 +320,32 @@ class IPv4Data
     }
 
 }
+
+Class EthernetII
+{
+    [String] $DestinationMacAddress
+    [String] $SourceMacAddress
+    [uint16] $EtherType
+    [bool] $VlanTag
+    [uint16] $TPID
+    [uint16] $TCI
+
+
+    EthernetII([Byte[]]$ByteArray)
+    {
+        $this.DestinationMacAddress = ($ByteArray[0..5] | ForEach-Object { $_.ToString("X2") }) -join ':'
+        $this.SourceMacAddress = ($ByteArray[6..11] | ForEach-Object { $_.ToString("X2") }) -join ':'
+        $tmp = [BitUtils]::ToUInt16BigEndian($ByteArray, 12)
+        if($tmp -eq 0x8100)
+        {
+            $this.VlanTag = $true
+            $this.TPID = $tmp 
+            $this.TCI = [BitUtils]::ToUInt16BigEndian($ByteArray, 14)
+            $this.EtherType = [BitUtils]::ToUInt16BigEndian($ByteArray, 16)
+        }
+        else
+        {
+            $this.EtherType = $tmp
+        }
+    }
+}
